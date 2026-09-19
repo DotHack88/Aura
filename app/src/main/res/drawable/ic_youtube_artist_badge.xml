@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- YouTube Official Artist / Musical Note Badge -->
+    <path
+        android:fillColor="#F7F7F7"
+        android:pathData="M9.03,2.242 L8.272,3 H7.2 A4.2,4.2 0 0,0 3,7.2 v1.072 l-0.758,0.758 a4.2,4.2 0 0,0 0,5.94 l0.758,0.758 V16.8 A4.2,4.2 0 0,0 7.2,21 h1.072 l0.758,0.758 a4.2,4.2 0 0,0 5.94,0 l0.758,-0.758 H16.8 a4.2,4.2 0 0,0 4.2,-4.2 v-1.072 l0.758,-0.758 a4.2,4.2 0 0,0 0,-5.94 L21,8.272 V7.2 A4.2,4.2 0 0,0 16.8,3 h-1.072 l-0.758,-0.758 a4.2,4.2 0 0,0 -5.94,0 Z m7.73,6.638 a0.5,0.5 0 0,1 0.241,0.427 v1.743 a0.256,0.256 0 0,1 -0.386,0.219 L14.001,9.7 v4.55 a2.75,2.75 0 1,1 -2,-2.646 V6.888 a0.5,0.5 0 0,1 0.759,-0.428 l4,2.42 Z" />
+</vector>

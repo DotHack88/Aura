@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Store images in the external cache directory -->
+    <external-cache-path name="shared_images" path="images/" />
+    <!-- Also support internal cache as fallback -->
+    <cache-path name="shared_images_internal" path="images/" />
+</paths>
