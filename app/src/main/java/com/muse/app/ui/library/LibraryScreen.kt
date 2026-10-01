@@ -17,6 +17,12 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Image
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.ui.platform.LocalContext
+import com.muse.app.utils.CoverUtils
 import androidx.compose.material3.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import sh.calvin.reorderable.ReorderableItem
@@ -66,6 +72,23 @@ fun LibraryScreen(
     var selectedPlaylistId by remember { mutableStateOf<String?>(null) }
     var newPlaylistName by remember { mutableStateOf("") }
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var playlistForCoverChange by remember { mutableStateOf<String?>(null) }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null && playlistForCoverChange != null) {
+            val plId = playlistForCoverChange!!
+            coroutineScope.launch {
+                val savedPath = CoverUtils.savePlaylistCoverLocally(context, plId, uri)
+                if (savedPath != null) {
+                    musicRepository.updatePlaylistCover(plId, savedPath)
+                }
+                playlistForCoverChange = null
+            }
+        }
+    }
 
     Column(
         modifier = modifier
@@ -194,29 +217,13 @@ fun LibraryScreen(
                                             .padding(vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        if (!playlist.coverUrl.isNullOrEmpty()) {
-                                            AsyncImage(
-                                                model = playlist.coverUrl,
-                                                contentDescription = playlist.name,
-                                                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
-                                                contentScale = ContentScale.Crop
-                                            )
-                                        } else {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(56.dp)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(MaterialTheme.colorScheme.primaryContainer),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.QueueMusic,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(32.dp),
-                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                                                )
-                                            }
-                                        }
+                                        MuseThumbnail(
+                                            url = playlist.coverUrl,
+                                            contentDescription = playlist.name,
+                                            size = 56.dp,
+                                            shape = RoundedCornerShape(8.dp),
+                                            fallbackIcon = Icons.Default.QueueMusic
+                                        )
                                         Spacer(modifier = Modifier.width(16.dp))
                                         Text(
                                             text = playlist.name,
@@ -241,6 +248,17 @@ fun LibraryScreen(
                                                         selectedPlaylistId = playlist.id
                                                         newPlaylistName = playlist.name
                                                         showRenameDialog = true
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Cambia copertina") },
+                                                    leadingIcon = { Icon(Icons.Default.Image, contentDescription = null) },
+                                                    onClick = {
+                                                        showMenu = false
+                                                        playlistForCoverChange = playlist.id
+                                                        photoPickerLauncher.launch(
+                                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                        )
                                                     }
                                                 )
                                                 DropdownMenuItem(

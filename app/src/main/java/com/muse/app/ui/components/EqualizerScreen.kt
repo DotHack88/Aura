@@ -28,11 +28,16 @@ fun EqualizerBottomSheet(
     equalizerManager: EqualizerManager,
     onDismiss: () -> Unit
 ) {
-    var selectedPreset by remember { mutableStateOf(equalizerManager.currentPreset) }
-    var bandLevels by remember { mutableStateOf(equalizerManager.bandLevels) }
+    // Colleziona i StateFlow: ogni cambio aggiorna automaticamente l'UI
+    val bandLevels by equalizerManager.bandLevelsFlow.collectAsState()
+    val selectedPreset by equalizerManager.currentPresetFlow.collectAsState()
+
     val bandFreqs = equalizerManager.bandFrequencies
     val minLevel = equalizerManager.minLevel.toFloat()
     val maxLevel = equalizerManager.maxLevel.toFloat()
+
+    // Se l'EQ non è ancora inizializzato, mostra 5 bande a zero come fallback
+    val safeBandLevels = bandLevels.ifEmpty { List(equalizerManager.bandCount) { 0 } }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -99,9 +104,8 @@ fun EqualizerBottomSheet(
                                 RoundedCornerShape(20.dp)
                             )
                             .clickable {
-                                selectedPreset = preset
+                                // Applica il preset: i StateFlow aggiornano l'UI in automatico
                                 equalizerManager.applyPreset(preset)
-                                bandLevels = equalizerManager.bandLevels
                             }
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
@@ -118,7 +122,7 @@ fun EqualizerBottomSheet(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Slider per ogni banda
+            // Slider per ogni banda — si aggiornano automaticamente al cambio preset
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -126,7 +130,7 @@ fun EqualizerBottomSheet(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                bandLevels.forEachIndexed { index, level ->
+                safeBandLevels.forEachIndexed { index, level ->
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
@@ -144,13 +148,9 @@ fun EqualizerBottomSheet(
                         Slider(
                             value = level.toFloat(),
                             onValueChange = { newVal ->
-                                val levels = bandLevels.toMutableList()
-                                levels[index] = newVal.toInt()
-                                bandLevels = levels
                                 equalizerManager.setBandLevel(index, newVal.toInt())
-                                selectedPreset = EqPreset.PERSONALIZZATO
                             },
-                            valueRange = minLevel..maxLevel,
+                            valueRange = if (minLevel < maxLevel) minLevel..maxLevel else -1500f..1500f,
                             colors = SliderDefaults.colors(
                                 thumbColor = Color(0xFF9B59B6),
                                 activeTrackColor = Color(0xFF9B59B6),

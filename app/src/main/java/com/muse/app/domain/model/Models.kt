@@ -100,9 +100,11 @@ data class PlayerState(
     val repeat: RepeatMode = RepeatMode.OFF,
     val playerMode: PlayerMode = PlayerMode.MINI,
     val isVideoMode: Boolean = false,
+    val currentYouTubeVideoId: String? = null, // ID del video YouTube in riproduzione in video mode
     val playlist: List<Track> = emptyList(),
     val currentIndex: Int = -1,
     val errorMessage: String? = null,
-    val sleepTimerRemainingMs: Long = 0L // 0 = timer disattivo
+    val sleepTimerRemainingMs: Long = 0L, // 0 = timer disattivo
+    val crossfadeDurationMs: Long = 0L // 0 = crossfade disattivo
 )
 

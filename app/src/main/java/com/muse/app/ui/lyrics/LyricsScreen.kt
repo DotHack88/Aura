@@ -24,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -35,8 +36,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
 import com.muse.app.domain.model.LyricsLine
 import com.muse.app.player.PlayerManager
+import androidx.compose.material.icons.filled.Equalizer
+import com.muse.app.ui.components.EqualizerBottomSheet
 import com.muse.app.ui.components.rememberDominantColor
 import kotlinx.coroutines.delay
 
@@ -51,6 +56,10 @@ fun LyricsScreen(
     val track = state.currentTrack ?: return
 
     val listState = rememberLazyListState()
+    var showEqualizer by remember { mutableStateOf(false) }
+
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     // Colore dominante dalla copertina per sfondo dinamico
     val dominantColor = rememberDominantColor(track.thumbnailUrl)
@@ -63,14 +72,16 @@ fun LyricsScreen(
         label = "lyricsBg"
     )
 
-    // Offset di sincronizzazione manuale (utile per video YouTube con intro lunghe rispetto alla traccia Spotify)
-    var syncOffset by remember { mutableLongStateOf(0L) }
+    // Offset di sincronizzazione manuale: default -1.0s (la maggior parte dei testi risulta
+    // leggermente in anticipo rispetto al segnale audio; l'utente può regolarlo con +/-)
+    var syncOffset by remember { mutableLongStateOf(-1000L) }
 
     // Calcola l'indice della riga attiva in base a state.positionMs e al syncOffset
     val currentLineIndex = remember(state.positionMs, syncOffset, lyrics) {
         val lines = lyrics?.lines.orEmpty()
         if (lines.isEmpty()) -1
         else {
+            // syncOffset è già il valore esatto da sommare (senza offset fisso nascosto)
             val adjustedPosition = state.positionMs + syncOffset
             val idx = lines.indexOfLast { it.timestampMs <= adjustedPosition }
             if (idx == -1) 0 else idx
@@ -115,29 +126,26 @@ fun LyricsScreen(
                 onDragStopped = { dragAccumulated = 0f }
             )
     ) {
-        // Sfondo sfumato con copertina sfocata (stile Apple Music)
+        // Sfondo sfocato: copertina a pieno schermo con heavy blur (stile Apple Music)
         AsyncImage(
             model = track.thumbnailUrl,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .fillMaxWidth()
-                .height(320.dp)
-                .graphicsLayer { alpha = 0.12f }
+                .fillMaxSize()
+                .blur(radius = 55.dp)
+                .graphicsLayer { scaleX = 1.3f; scaleY = 1.3f }
         )
-
-        // Overlay gradiente per leggibilita
+        // Overlay scuro + gradiente per leggibilità
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Transparent,
-                            Color(0xFF050505).copy(alpha = 0.6f),
-                            Color(0xFF050505)
-                        ),
-                        startY = 200f
+                            Color.Black.copy(alpha = 0.60f),
+                            Color.Black.copy(alpha = 0.85f)
+                        )
                     )
                 )
         )
@@ -163,12 +171,12 @@ fun LyricsScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -183,7 +191,7 @@ fun LyricsScreen(
 
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).padding(end = 32.dp) // padding per bilanciare il bottone indietro
                 ) {
                     Text(
                         text = "TESTO",
@@ -211,15 +219,15 @@ fun LyricsScreen(
                     )
                 }
 
-                // Mini copertina arrotondata
-                AsyncImage(
-                    model = track.thumbnailUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                )
+                // Pulsante Equalizzatore (Bug #1 fix)
+                IconButton(onClick = { showEqualizer = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Equalizer,
+                        contentDescription = "Equalizzatore",
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
 
             HorizontalDivider(
@@ -227,12 +235,31 @@ fun LyricsScreen(
                 color = Color.White.copy(alpha = 0.08f)
             )
 
+            // Copertina in evidenza
+            if (!isLandscape) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = track.thumbnailUrl,
+                        contentDescription = "Copertina",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(200.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                    )
+                }
+            }
+
             val lines = lyrics?.lines.orEmpty()
             
             // Controlli di sincronizzazione (visibili solo se ci sono testi)
             if (lines.isNotEmpty()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -305,9 +332,9 @@ fun LyricsScreen(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = 8.dp),
+                        .padding(top = 2.dp),
                     verticalArrangement = Arrangement.spacedBy(0.dp),
-                    contentPadding = PaddingValues(vertical = 80.dp)
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp)
                 ) {
                     itemsIndexed(lines) { index, line ->
                         val isCurrent = (index == currentLineIndex)
@@ -316,44 +343,69 @@ fun LyricsScreen(
                         val textColor by animateColorAsState(
                             targetValue = when {
                                 isCurrent -> Color.White
-                                isPast    -> Color.White.copy(alpha = 0.22f)
-                                else      -> Color.White.copy(alpha = 0.38f)
+                                isPast    -> Color.White.copy(alpha = 0.20f)
+                                else      -> Color.White.copy(alpha = 0.40f)
                             },
-                            animationSpec = tween(400),
+                            animationSpec = tween(350),
                             label = "lineColor_$index"
                         )
+                        
                         val textScale by animateFloatAsState(
-                            targetValue = if (isCurrent) 1.03f else 1f,
+                            targetValue = when {
+                                isCurrent -> 1.0f
+                                isPast    -> 0.90f
+                                else      -> 0.95f
+                            },
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessMedium
+                                stiffness = Spring.StiffnessLow
                             ),
                             label = "lineScale_$index"
+                        )
+                        
+                        val blurRadius by animateFloatAsState(
+                            targetValue = when {
+                                isCurrent -> 0f
+                                isPast    -> 2.5f
+                                else      -> 0.5f
+                            },
+                            animationSpec = tween(350),
+                            label = "lineBlur_$index"
                         )
 
                         Text(
                             text = line.text,
                             style = if (isCurrent) {
-                                MaterialTheme.typography.headlineSmall.copy(
-                                    fontWeight = FontWeight.ExtraBold,
-                                    lineHeight = 38.sp
+                                MaterialTheme.typography.headlineLarge.copy(
+                                    fontWeight = FontWeight.Black,
+                                    lineHeight = 44.sp,
+                                    letterSpacing = (-0.5).sp
                                 )
                             } else {
-                                MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    lineHeight = 32.sp
+                                MaterialTheme.typography.headlineMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = 38.sp
                                 )
                             },
                             color = textColor,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .scale(textScale)
+                                .blur(radius = blurRadius.dp)
                                 .clickable { playerManager.seekTo((line.timestampMs - syncOffset).coerceAtLeast(0)) }
-                                .padding(vertical = 10.dp)
+                                .padding(vertical = 12.dp)
                         )
                     }
                 }
             }
         }
+    }
+
+    // Equalizzatore bottom sheet (Bug #1)
+    if (showEqualizer) {
+        EqualizerBottomSheet(
+            equalizerManager = playerManager.equalizerManager,
+            onDismiss = { showEqualizer = false }
+        )
     }
 }

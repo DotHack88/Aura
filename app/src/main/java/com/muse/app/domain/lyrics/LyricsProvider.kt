@@ -160,7 +160,7 @@ class DefaultLyricsProvider : LyricsProvider {
             val resultArtist = obj.get("artistName")?.takeIf { !it.isJsonNull }?.asString
             val score = matchScore(resultTitle, resultArtist, cleanTitle, cleanArtist)
             Log.d(TAG, "fetchFromLrcLib score=$score per '$cleanArtist - $cleanTitle' → '$resultArtist - $resultTitle'")
-            if (score < 0.3) {
+            if (score < 0.5) {
                 Log.w(TAG, "Risultato LRCLIB scartato (score=$score): '$resultArtist - $resultTitle'")
                 return null
             }
@@ -229,7 +229,7 @@ class DefaultLyricsProvider : LyricsProvider {
                     val rTitle  = obj.get("trackName")?.takeIf { !it.isJsonNull }?.asString
                     val rArtist = obj.get("artistName")?.takeIf { !it.isJsonNull }?.asString
                     val score   = matchScore(rTitle, rArtist, cleanTitle, cleanArtist)
-                    if (score < 0.3) {
+                    if (score < 0.5) {
                         Log.d(TAG, "Candidato scartato (score=$score): '$rArtist - $rTitle'")
                         null
                     } else {
@@ -383,6 +383,54 @@ class DefaultLyricsProvider : LyricsProvider {
                 [00:55.00]Become so tired, so much more aware
                 [01:00.00]I'm becoming this, all I want to do
                 [01:05.00]Is be more like me and be less like you
+            """.trimIndent()
+
+            // Neon Heart - Zylvox+Studio
+            trackId == "PrZdvoaIn-k" || (t.contains("neon heart") && a.contains("zylvox")) -> """
+                [00:07.00]City lights are falling down the glass tonight
+                [00:11.00]Broken signals drifting through the satellite
+                [00:15.00]Every memory flickers like a fading screen
+                [00:19.00]You're the only thing that ever felt serene
+                [00:25.00]Static in my heartbeat
+                [00:28.00]Running through the wires
+                [00:31.00]Every dream we built now
+                [00:34.00]Burns in neon fire
+                [00:40.00]Stay with me tonight
+                [00:43.00]Under electric skies
+                [00:46.00]Where the stars don't shine
+                [00:49.00]But your eyes still light my life
+                [00:53.00]Hold me in the glow
+                [00:56.00]Before the daylight goes
+                [00:59.00]In this endless chrome
+                [01:02.00]You're the only place I call home
+                [01:12.00]Crowded streets and endless advertisements bloom
+                [01:16.00]Yet the silence grows whenever I lose you
+                [01:20.00]Data ghosts are dancing in the midnight rain
+                [01:24.00]Trying to convince me you're still here again
+                [01:30.00]Voices from the network
+                [01:33.00]Calling out your name
+                [01:36.00]Every crowded skyline
+                [01:39.00]Feels exactly the same
+                [01:44.00]Stay with me tonight
+                [01:47.00]Under electric skies
+                [01:50.00]Where the stars don't shine
+                [01:53.00]But your eyes still light my life
+                [01:57.00]Hold me in the glow
+                [02:00.00]Before the daylight goes
+                [02:03.00]In this endless chrome
+                [02:06.00]You're the only place I call home
+                [02:16.00]Fly beyond the moonlight
+                [02:20.00]Past the city haze
+                [02:24.00]If tomorrow breaks us
+                [02:28.00]I'll remember these days
+                [02:33.00]Stay with me tonight
+                [02:36.00]Through the fading light
+                [02:39.00]Even if we're gone
+                [02:42.00]Our signal carries on
+                [02:47.00]Neon hearts remain
+                [02:50.00]Inside the pouring rain
+                [02:53.00]And in every dream
+                [02:56.00]You're still waiting there for me
             """.trimIndent()
 
             // Nessun testo curato disponibile

@@ -161,4 +161,11 @@ class MuseApplication : Application(), coil.ImageLoaderFactory {
         // Player Manager
         playerManager = PlayerManager(this, musicRepository)
     }
+
+    override fun onTerminate() {
+        if (::playerManager.isInitialized) {
+            playerManager.release()
+        }
+        super.onTerminate()
+    }
 }

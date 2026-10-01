@@ -3,6 +3,8 @@ package com.muse.app.ui.navigation
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,7 +12,12 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -23,6 +30,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,14 +63,17 @@ import com.muse.app.ui.artist.ArtistScreen
 import com.muse.app.ui.search.SearchScreen
 import com.muse.app.ui.library.PlaylistScreen
 import com.muse.app.ui.profile.StatsScreen
+import com.muse.app.ui.radio.RadioScreen
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Home : Screen("home", "Home", Icons.Default.Home)
     object Search : Screen("search", "Cerca", Icons.Default.Search)
     object Library : Screen("library", "Libreria", Icons.Default.LibraryMusic)
+    object Radio : Screen("radio", "Radio", Icons.Default.Radio)
     object Profile : Screen("profile", "Profilo", Icons.Default.Person)
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun AppNavigation(
     musicRepository: MusicRepository,
@@ -89,9 +100,11 @@ fun AppNavigation(
         Screen.Home,
         Screen.Search,
         Screen.Library,
+        Screen.Radio,
         Screen.Profile
     )
 
+    SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
     Box(modifier = Modifier.fillMaxSize()) {
 
         Scaffold(
@@ -193,10 +206,22 @@ fun AppNavigation(
                     navController = navController,
                     startDestination = Screen.Home.route,
                     modifier = Modifier.fillMaxSize(),
-                    enterTransition = { slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(300)) + fadeIn(tween(300)) },
-                    exitTransition = { slideOutHorizontally(targetOffsetX = { -it / 3 }, animationSpec = tween(300)) + fadeOut(tween(200)) },
-                    popEnterTransition = { slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(300)) + fadeIn(tween(300)) },
-                    popExitTransition = { slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(300)) + fadeOut(tween(200)) }
+                    enterTransition = { 
+                        fadeIn(animationSpec = tween(300, easing = LinearOutSlowInEasing)) + 
+                        scaleIn(initialScale = 0.92f, animationSpec = tween(300, easing = FastOutSlowInEasing)) 
+                    },
+                    exitTransition = { 
+                        fadeOut(animationSpec = tween(300, easing = FastOutLinearInEasing)) + 
+                        scaleOut(targetScale = 1.05f, animationSpec = tween(300, easing = FastOutSlowInEasing)) 
+                    },
+                    popEnterTransition = { 
+                        fadeIn(animationSpec = tween(300, easing = LinearOutSlowInEasing)) + 
+                        scaleIn(initialScale = 1.05f, animationSpec = tween(300, easing = FastOutSlowInEasing)) 
+                    },
+                    popExitTransition = { 
+                        fadeOut(animationSpec = tween(300, easing = FastOutLinearInEasing)) + 
+                        scaleOut(targetScale = 0.92f, animationSpec = tween(300, easing = FastOutSlowInEasing)) 
+                    }
                 ) {
                     composable(Screen.Home.route) {
                         HomeScreen(
@@ -291,7 +316,17 @@ fun AppNavigation(
                             playlistId = playlistId,
                             musicRepository = musicRepository,
                             playerManager = playerManager,
-                            onNavigateBack = { navController.popBackStack() }
+                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateToSearch = { query ->
+                                navController.navigate("${Screen.Search.route}?query=${java.net.URLEncoder.encode(query, "UTF-8")}")
+                            },
+                            onNavigateToAlbum = { browseId, title, artist, cover ->
+                                navController.navigate(
+                                    "album/$browseId?title=${java.net.URLEncoder.encode(title, "UTF-8")}" +
+                                    "&artist=${java.net.URLEncoder.encode(artist, "UTF-8")}" +
+                                    "&cover=${java.net.URLEncoder.encode(cover, "UTF-8")}"
+                                )
+                            }
                         )
                     }
                     composable(Screen.Profile.route) {
@@ -305,6 +340,14 @@ fun AppNavigation(
                         StatsScreen(
                             musicRepository = musicRepository,
                             onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable(Screen.Radio.route) {
+                        RadioScreen(
+                            playerManager = playerManager,
+                            onNavigateToPlayer = {
+                                isFullPlayerVisible = true
+                            }
                         )
                     }
                     composable("artist/{browseId}") { backStackEntry ->
@@ -355,15 +398,21 @@ fun AppNavigation(
                 }
 
                 // MiniPlayer posizionato esattamente sopra la Bottom Bar
-                if (playerState.currentTrack != null && !isFullPlayerVisible && !isLyricsVisible) {
+                // MiniPlayer posizionato esattamente sopra la Bottom Bar
+                AnimatedVisibility(
+                    visible = playerState.currentTrack != null && !isFullPlayerVisible && !isLyricsVisible,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = bottomBarHeight)
+                ) {
                     MiniPlayer(
                         playerState = playerState,
                         onExpand = { isFullPlayerVisible = true },
                         onTogglePlay = { playerManager.togglePlayPause() },
                         onNext = { playerManager.next() },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = bottomBarHeight)
+                        onPrevious = { playerManager.previous() },
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this
                     )
                 }
             }
@@ -391,6 +440,8 @@ fun AppNavigation(
                         "&cover=${java.net.URLEncoder.encode(cover, "UTF-8")}"
                     )
                 },
+                sharedTransitionScope = this@SharedTransitionLayout,
+                animatedVisibilityScope = this,
                 onDismiss = { isFullPlayerVisible = false }
             )
         }
@@ -407,4 +458,5 @@ fun AppNavigation(
             )
         }
     }
+    } // end SharedTransitionLayout
 }

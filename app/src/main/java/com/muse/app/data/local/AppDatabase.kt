@@ -102,19 +102,55 @@ interface PlaylistDao {
     suspend fun insertPlaylist(playlist: PlaylistEntity)
 
     @Query("UPDATE playlists SET coverUrl = :coverUrl WHERE id = :playlistId")
-    suspend fun updatePlaylistCover(playlistId: String, coverUrl: String)
+    suspend fun updatePlaylistCover(playlistId: String, coverUrl: String?)
 
     @Query("UPDATE playlists SET name = :name WHERE id = :playlistId")
     suspend fun updatePlaylistName(playlistId: String, name: String)
 
-    @Query("SELECT * FROM playlists ORDER BY orderIndex ASC, createdAt ASC")
+    @Query("""
+        SELECT p.id, p.name, 
+               COALESCE(p.coverUrl, (
+                   SELECT t.thumbnailUrl FROM tracks t 
+                   INNER JOIN playlist_tracks pt ON t.id = pt.trackId 
+                   WHERE pt.playlistId = p.id 
+                   ORDER BY pt.orderIndex ASC LIMIT 1
+               )) AS coverUrl,
+               p.createdAt, p.orderIndex
+        FROM playlists p
+        ORDER BY p.orderIndex ASC, p.createdAt ASC
+    """)
     fun getAllPlaylists(): Flow<List<PlaylistEntity>>
 
     @Query("UPDATE playlists SET orderIndex = :orderIndex WHERE id = :playlistId")
     suspend fun updatePlaylistOrder(playlistId: String, orderIndex: Int)
 
-    @Query("SELECT * FROM playlists WHERE id = :playlistId")
+    @Query("""
+        SELECT p.id, p.name, 
+               COALESCE(p.coverUrl, (
+                   SELECT t.thumbnailUrl FROM tracks t 
+                   INNER JOIN playlist_tracks pt ON t.id = pt.trackId 
+                   WHERE pt.playlistId = p.id 
+                   ORDER BY pt.orderIndex ASC LIMIT 1
+               )) AS coverUrl,
+               p.createdAt, p.orderIndex
+        FROM playlists p
+        WHERE p.id = :playlistId
+    """)
     suspend fun getPlaylistById(playlistId: String): PlaylistEntity?
+
+    @Query("""
+        SELECT p.id, p.name, 
+               COALESCE(p.coverUrl, (
+                   SELECT t.thumbnailUrl FROM tracks t 
+                   INNER JOIN playlist_tracks pt ON t.id = pt.trackId 
+                   WHERE pt.playlistId = p.id 
+                   ORDER BY pt.orderIndex ASC LIMIT 1
+               )) AS coverUrl,
+               p.createdAt, p.orderIndex
+        FROM playlists p
+        WHERE p.id = :playlistId
+    """)
+    fun getPlaylistFlow(playlistId: String): Flow<PlaylistEntity?>
 
     @Query("DELETE FROM playlists WHERE id = :playlistId")
     suspend fun deletePlaylist(playlistId: String): Int
@@ -132,6 +168,14 @@ interface PlaylistDao {
         ORDER BY pt.orderIndex ASC
     """)
     fun getTracksForPlaylist(playlistId: String): Flow<List<TrackEntity>>
+
+    @Query("""
+        SELECT t.* FROM tracks t
+        INNER JOIN playlist_tracks pt ON t.id = pt.trackId
+        WHERE pt.playlistId = :playlistId
+        ORDER BY pt.orderIndex ASC
+    """)
+    suspend fun getTracksForPlaylistList(playlistId: String): List<TrackEntity>
 }
 
 @Dao

@@ -44,7 +44,9 @@ fun TrackOptionsBottomSheet(
     onDismiss: () -> Unit,
     showAddToQueue: Boolean = true,
     onNavigateToSearch: ((String) -> Unit)? = null,
-    onNavigateToAlbum: ((browseId: String, title: String, artist: String, cover: String) -> Unit)? = null
+    onNavigateToAlbum: ((browseId: String, title: String, artist: String, cover: String) -> Unit)? = null,
+    playlistId: String? = null,
+    onRemoveFromPlaylist: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -198,6 +200,24 @@ fun TrackOptionsBottomSheet(
                     label = "Aggiungi a playlist"
                 ) {
                     showPlaylistPicker = true
+                }
+
+                // Opzione: Rimuovi dalla playlist
+                if (playlistId != null || onRemoveFromPlaylist != null) {
+                    MenuOption(
+                        icon = Icons.Default.Delete,
+                        label = "Rimuovi dalla playlist",
+                        tint = MaterialTheme.colorScheme.error
+                    ) {
+                        if (onRemoveFromPlaylist != null) {
+                            onRemoveFromPlaylist()
+                        } else if (playlistId != null) {
+                            scope.launch {
+                                musicRepository.removeTrackFromPlaylist(playlistId, track.id)
+                            }
+                        }
+                        onDismiss()
+                    }
                 }
 
                 // Opzione: Vai all'artista

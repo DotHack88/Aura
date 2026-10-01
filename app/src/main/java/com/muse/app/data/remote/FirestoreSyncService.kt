@@ -100,6 +100,15 @@ class FirestoreSyncService(
             .await()
     }
 
+    suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
+        val uid = getCurrentUserId() ?: return
+        firestore.collection("users").document(uid)
+            .collection("playlists").document(playlistId)
+            .collection("tracks").document(trackId)
+            .delete()
+            .await()
+    }
+
     suspend fun pullFavorites(): List<Track> {
         val uid = getCurrentUserId() ?: return emptyList()
         val result = firestore.collection("users").document(uid)

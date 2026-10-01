@@ -1,6 +1,13 @@
 package com.muse.app.player
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.os.Build
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -66,6 +73,15 @@ class PlayerManager(
                 )
             )
         )
+        .setLoadControl(
+            androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    50000, // min buffer 50s
+                    120000, // max buffer 2 mins
+                    2500, // buffer for playback
+                    5000 // buffer for playback after rebuffer
+                ).build()
+        )
         .build().apply {
         addListener(this@PlayerManager)
     }
@@ -74,14 +90,116 @@ class PlayerManager(
     private var extractJob: Job? = null
     private var lyricsJob: Job? = null
     private var sleepTimerJob: Job? = null
+    private var crossfadeJob: Job? = null
+    private var crossfadeTriggeredForTrack: String? = null // evita doppio trigger per lo stesso brano
     private var currentVideoId: String? = null
     private var consecutiveErrors = 0
     /** True per i ~2s subito dopo STATE_ENDED, per ignorare errori ExoPlayer post-fine naturale */
     private var isNaturalEnd = false
+    /** True mentre stiamo già gestendo un STATE_ENDED, per evitare doppia esecuzione (race condition) */
+    private var isHandlingEnd = false
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var mediaController: MediaController? = null
         private set
+
+    // ─── Audio Focus ─────────────────────────────────────────────────────────
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    /** True se la pausa è stata causata da noi a seguito di un focus loss (per riprendere al GAIN) */
+    private var pausedByFocusLoss = false
+    /** Volume pre-duck, per ripristinarlo dopo un AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK */
+    private var volumeBeforeDuck = 1f
+
+    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                // Chiamata terminata / altra app ha smesso di usare l'audio
+                Log.d("PlayerManager", "AudioFocus: GAIN — ripristino volume e ripresa")
+                exoPlayer.volume = volumeBeforeDuck
+                if (pausedByFocusLoss && !exoPlayer.isPlaying) {
+                    exoPlayer.play()
+                }
+                pausedByFocusLoss = false
+            }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                // Perdita definitiva (altra app ha preso il focus per lungo tempo)
+                Log.d("PlayerManager", "AudioFocus: LOSS — pausa definitiva")
+                if (exoPlayer.isPlaying) {
+                    pausedByFocusLoss = false
+                    exoPlayer.pause()
+                }
+                releaseAudioFocus()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                // Perdita temporanea (es. telefonata, notifica vocale)
+                Log.d("PlayerManager", "AudioFocus: LOSS_TRANSIENT — pausa temporanea")
+                if (exoPlayer.isPlaying) {
+                    pausedByFocusLoss = true
+                    exoPlayer.pause()
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                // Perdita parziale (es. notifica GPS) — abbassa il volume senza pausare
+                Log.d("PlayerManager", "AudioFocus: LOSS_TRANSIENT_CAN_DUCK — abbasso volume")
+                volumeBeforeDuck = exoPlayer.volume
+                exoPlayer.volume = exoPlayer.volume * 0.3f
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private val audioFocusRequest: AudioFocusRequest? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setAcceptsDelayedFocusGain(true)
+                .setOnAudioFocusChangeListener(audioFocusListener)
+                .build()
+        } else null
+
+    /** Richiede l'Audio Focus prima di avviare la riproduzione. Ritorna true se il focus è stato ottenuto. */
+    private fun requestAudioFocus(): Boolean {
+        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioManager.requestAudioFocus(audioFocusRequest!!)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(
+                audioFocusListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN
+            )
+        }
+        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED ||
+               result == AudioManager.AUDIOFOCUS_REQUEST_DELAYED
+    }
+
+    /** Rilascia l'Audio Focus (chiamato quando l'utente mette in pausa manualmente). */
+    private fun releaseAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioManager.abandonAudioFocusRequest(audioFocusRequest!!)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(audioFocusListener)
+        }
+    }
+
+    // ─── Becoming Noisy (cuffie staccate) ────────────────────────────────────
+    private val becomingNoisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                Log.d("PlayerManager", "Cuffie staccate — pausa automatica")
+                if (exoPlayer.isPlaying) {
+                    pausedByFocusLoss = false // pausa manuale, non riprendere automaticamente
+                    exoPlayer.pause()
+                }
+            }
+        }
+    }
 
     init {
         val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
@@ -94,12 +212,22 @@ class PlayerManager(
         scope.launch(Dispatchers.Main) {
             equalizerManager.init(exoPlayer.audioSessionId)
         }
+        // Registra il receiver per cuffie staccate
+        val noisyFilter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        context.registerReceiver(becomingNoisyReceiver, noisyFilter)
     }
 
-    fun playTrack(track: Track, playlist: List<Track> = listOf(track)) {
+    fun playTrack(track: Track, playlist: List<Track> = listOf(track), startPositionMs: Long = 0L) {
         val index = playlist.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
         // Ogni nuovo brano avviato esplicitamente resetta il contatore errori
-        consecutiveErrors = 0
+        if (startPositionMs == 0L) {
+            consecutiveErrors = 0
+        }
+        // Resetta il crossfade per il nuovo brano
+        crossfadeJob?.cancel()
+        crossfadeTriggeredForTrack = null
+        // Assicura che il volume sia sempre al massimo all'inizio di un nuovo brano
+        exoPlayer.volume = 1f
         isNaturalEnd = false
 
         // Salva lo stato video PRIMA dell'update per sapere se riattivarlo dopo
@@ -111,7 +239,7 @@ class PlayerManager(
                 playlist = playlist,
                 currentIndex = index,
                 isPlaying = false,
-                positionMs = 0L,
+                positionMs = startPositionMs,
                 durationMs = track.durationMs,
                 playerMode = if (it.playerMode == PlayerMode.MINI) PlayerMode.FULL else it.playerMode,
                 errorMessage = null,
@@ -121,8 +249,32 @@ class PlayerManager(
             )
         }
         
+        scope.launch {
+            musicRepository.recordHistory(track, startPositionMs, true)
+        }
+        
         _currentLyrics.value = null
         loadLyricsForTrack(track)
+
+        // ── Auto-Radio (Related Tracks) ──
+        if (playlist.size == 1) {
+            scope.launch {
+                try {
+                    val related = musicRepository.getRelatedTracks(track.id)
+                    if (related.isNotEmpty()) {
+                        val newPlaylist = listOf(track) + related.filter { it.id != track.id }
+                        withContext(Dispatchers.Main) {
+                            if (_playerState.value.currentTrack?.id == track.id) {
+                                _playerState.update { it.copy(playlist = newPlaylist) }
+                                Log.d("PlayerManager", "Auto-Radio: aggiunti ${related.size} brani correlati")
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("PlayerManager", "Errore Auto-Radio", e)
+                }
+            }
+        }
 
         // === CAST: Se c'è una sessione Google Cast attiva, delega il playback a CastManager ===
         if (CastManager.isCasting.value) {
@@ -134,6 +286,10 @@ class PlayerManager(
             } else -1
             if (nextIndex in playlist.indices && nextIndex != index) {
                 CastManager.appendToQueue(playlist[nextIndex])
+            }
+            if (startPositionMs > 0) {
+                val remoteClient = CastManager.castSession.value?.remoteMediaClient
+                remoteClient?.seek(com.google.android.gms.cast.MediaSeekOptions.Builder().setPosition(startPositionMs).build())
             }
             _playerState.update { it.copy(isPlaying = true) }
             startProgressTicker()
@@ -151,9 +307,11 @@ class PlayerManager(
                 val localUri = "file://${localFile.absolutePath}"
                 val mediaItem = createMediaItem(localUri, track)
                 withContext(Dispatchers.Main) {
+                    requestAudioFocus()
                     exoPlayer.stop()
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
+                    if (startPositionMs > 0) exoPlayer.seekTo(startPositionMs)
                     exoPlayer.play()
                 }
                 return@launch
@@ -161,33 +319,50 @@ class PlayerManager(
 
             // 2. Nessun file locale → estrai da YouTube con retry
             var streamUrl: String? = null
-            var attempts = 0
-            val maxAttempts = 2
 
-            while (attempts < maxAttempts && streamUrl == null) {
-                attempts++
-                try {
-                    Log.d("PlayerManager", "Tentativo $attempts/$maxAttempts per ${track.id}")
-                    streamUrl = NewPipeStreamExtractor.getAudioStreamUrl(track.id)
-                    if (streamUrl == null) {
-                        Log.d("PlayerManager", "Fallback su stream video per ${track.id}")
-                        streamUrl = NewPipeStreamExtractor.getVideoStreamUrl(track.id)
-                    }
-                } catch (e: Exception) {
-                    Log.e("PlayerManager", "Eccezione al tentativo $attempts per ${track.id}", e)
+            if (track.id.startsWith("http://") || track.id.startsWith("https://")) {
+                // URL diretto (radio italiane, stream HTTP/HTTPS)
+                streamUrl = track.id
+            } else if (track.durationMs == -1L) {
+                // Live stream YouTube (radio) — usa Piped API, molto più affidabile per i live
+                Log.d("PlayerManager", "Rilevato live stream YouTube per ${track.id} — uso Piped API")
+                streamUrl = NewPipeStreamExtractor.getLiveStreamUrl(track.id)
+                if (streamUrl == null) {
+                    Log.e("PlayerManager", "Impossibile ottenere live stream per ${track.id}")
                 }
-                if (streamUrl == null && attempts < maxAttempts) {
-                    kotlinx.coroutines.delay(1500)
+            } else {
+                var attempts = 0
+                val maxAttempts = 2
+
+                while (attempts < maxAttempts && streamUrl == null) {
+                    attempts++
+                    try {
+                        Log.d("PlayerManager", "Tentativo $attempts/$maxAttempts per ${track.id}")
+                        streamUrl = NewPipeStreamExtractor.getAudioStreamUrl(track.id)
+                        if (streamUrl == null) {
+                            Log.d("PlayerManager", "Fallback su stream video per ${track.id}")
+                            streamUrl = NewPipeStreamExtractor.getVideoStreamUrl(track.id)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("PlayerManager", "Eccezione al tentativo $attempts per ${track.id}", e)
+                    }
+                    if (streamUrl == null && attempts < maxAttempts) {
+                        kotlinx.coroutines.delay(1500)
+                    }
                 }
             }
 
             if (streamUrl != null) {
-                consecutiveErrors = 0
+                if (startPositionMs == 0L) {
+                    consecutiveErrors = 0
+                }
                 val mediaItem = createMediaItem(streamUrl, track)
                 withContext(Dispatchers.Main) {
+                    requestAudioFocus()
                     exoPlayer.stop()
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
+                    if (startPositionMs > 0) exoPlayer.seekTo(startPositionMs)
                     exoPlayer.play()
                 }
                 // Se prima era in modalità video, rilancia automaticamente il video per il nuovo brano
@@ -197,7 +372,7 @@ class PlayerManager(
                     switchToVideoMode()
                 }
             } else {
-                Log.e("PlayerManager", "Stream non ottenuto dopo $maxAttempts tentativi per ${track.id}. Skip.")
+                Log.e("PlayerManager", "Stream non ottenuto per ${track.id}. Skip.")
                 withContext(Dispatchers.Main) { 
                     _playerState.update { it.copy(isLoading = false) }
                     handlePlaybackError("Impossibile ottenere lo stream audio per questo brano.")
@@ -251,8 +426,16 @@ class PlayerManager(
                         exoPlayer.setMediaItem(mediaItem)
                         exoPlayer.prepare()
                         exoPlayer.seekTo(savedPosition)
+                        // Forza la qualità video massima disponibile (evita la partenza in bassa qualità)
+                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                            .buildUpon()
+                            .setMaxVideoSizeSd() // inizia da SD poi...
+                            .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE) // ...consenti tutte le risoluzioni
+                            .setMinVideoSize(720, 0) // preferisci almeno 720p
+                            .setForceHighestSupportedBitrate(true) // scegli sempre il bitrate più alto
+                            .build()
                         exoPlayer.play()
-                        _playerState.update { it.copy(isVideoMode = true) }
+                        _playerState.update { it.copy(isVideoMode = true, currentYouTubeVideoId = videoId) }
                         Log.d("PlayerManager", "Modalità VIDEO attivata per $videoId")
                     } catch (e: Exception) {
                         Log.e("PlayerManager", "Errore impostazione video: ${e.message}")
@@ -301,6 +484,13 @@ class PlayerManager(
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
                     exoPlayer.seekTo(savedPosition)
+                    // Ripristina la selezione automatica per l'audio
+                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                        .buildUpon()
+                        .setForceHighestSupportedBitrate(false)
+                        .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                        .setMinVideoSize(0, 0)
+                        .build()
                     exoPlayer.play()
                     _playerState.update { it.copy(isVideoMode = false) }
                 }
@@ -355,6 +545,7 @@ class PlayerManager(
         val metadataBuilder = androidx.media3.common.MediaMetadata.Builder()
             .setTitle(track.title)
             .setArtist(track.artist)
+            .setAlbumTitle(track.album ?: "")
             .setArtworkUri(android.net.Uri.parse(track.thumbnailUrl))
             
         if (artworkData != null) {
@@ -393,13 +584,21 @@ class PlayerManager(
         }
         // Riproduzione locale
         if (exoPlayer.isPlaying) {
+            pausedByFocusLoss = false // pausa manuale: non riprendere automaticamente al GAIN
             exoPlayer.pause()
+            releaseAudioFocus()
         } else {
+            requestAudioFocus()
             exoPlayer.play()
         }
     }
 
-    /** Aggiunge un brano alla fine della coda (playlist corrente) senza interrompere la riproduzione. */
+    /**
+     * Aggiunge un brano alla coda come prossimo brano da riprodurre.
+     * Ogni nuovo brano viene inserito subito dopo il brano corrente (currentIndex + 1),
+     * scalando indietro i brani aggiunti in precedenza.
+     * Esempio: se aggiungi Brano1 poi Brano2, l'ordine sarà: [corrente] → Brano2 → Brano1 → ...
+     */
     fun addToQueue(track: Track) {
         val state = _playerState.value
         if (state.currentTrack == null) {
@@ -408,12 +607,15 @@ class PlayerManager(
             return
         }
         val newPlaylist = state.playlist.toMutableList()
-        // Inserisce subito dopo la traccia corrente se non è già in lista
-        if (newPlaylist.none { it.id == track.id }) {
-            val insertIndex = (state.currentIndex + 1).coerceAtMost(newPlaylist.size)
-            newPlaylist.add(insertIndex, track)
-            _playerState.update { it.copy(playlist = newPlaylist) }
+        // Rimuove eventuale duplicato esistente in coda (non tocca la traccia corrente)
+        val existingIndex = newPlaylist.indexOfFirst { it.id == track.id }
+        if (existingIndex > state.currentIndex) {
+            newPlaylist.removeAt(existingIndex)
         }
+        // Inserisce SEMPRE in posizione currentIndex + 1 (prossimo da suonare)
+        val insertIndex = (state.currentIndex + 1).coerceAtMost(newPlaylist.size)
+        newPlaylist.add(insertIndex, track)
+        _playerState.update { it.copy(playlist = newPlaylist) }
     }
 
     fun moveTrack(fromIndex: Int, toIndex: Int) {
@@ -541,6 +743,15 @@ class PlayerManager(
         _playerState.update { it.copy(playerMode = mode) }
     }
 
+    /**
+     * Imposta la durata del crossfade in ms. 0 = disattivato.
+     * Valori consigliati: 3000-8000 ms.
+     */
+    fun setCrossfadeDuration(durationMs: Long) {
+        _playerState.update { it.copy(crossfadeDurationMs = durationMs.coerceIn(0L, 10_000L)) }
+        Log.d("PlayerManager", "Crossfade impostato a ${durationMs}ms")
+    }
+
     fun toggleFavoriteCurrent() {
         val current = _playerState.value.currentTrack ?: return
         scope.launch {
@@ -639,6 +850,38 @@ class PlayerManager(
                             musicRepository.recordHistory(track, currentPos)
                         }
                     }
+
+                    // === CROSSFADE: pre-avvio del prossimo brano ===
+                    val state = _playerState.value
+                    val crossfadeMs = state.crossfadeDurationMs
+                    val trackId = state.currentTrack?.id
+                    if (crossfadeMs > 0 && duration > 0 && !state.isVideoMode &&
+                        crossfadeTriggeredForTrack != trackId
+                    ) {
+                        val timeLeft = duration - currentPos
+                        if (timeLeft in 500L..crossfadeMs) {
+                            crossfadeTriggeredForTrack = trackId
+                            Log.d("PlayerManager", "Crossfade avviato: ${timeLeft}ms rimasti, fade=${crossfadeMs}ms")
+                            crossfadeJob?.cancel()
+                            crossfadeJob = scope.launch {
+                                val steps = 20
+                                val stepDelay = (timeLeft / steps).coerceAtLeast(50L)
+                                for (i in steps downTo 0) {
+                                    if (!isActive) break
+                                    withContext(Dispatchers.Main) {
+                                        exoPlayer.volume = (i.toFloat() / steps)
+                                    }
+                                    delay(stepDelay)
+                                }
+                                withContext(Dispatchers.Main) {
+                                    val hasNext = state.currentIndex < state.playlist.size - 1
+                                    val willRepeat = state.repeat == RepeatMode.ALL
+                                    exoPlayer.volume = 1f
+                                    if (hasNext || willRepeat) next()
+                                }
+                            }
+                        }
+                    }
                 }
                 delay(250)
             }
@@ -661,10 +904,17 @@ class PlayerManager(
 
     override fun onPlaybackStateChanged(playbackState: Int) {
         if (playbackState == Player.STATE_ENDED) {
+            // Guard contro doppia esecuzione (race condition ExoPlayer)
+            if (isHandlingEnd) return
+            isHandlingEnd = true
             isNaturalEnd = true
             val state = _playerState.value
             when (state.repeat) {
-                RepeatMode.ONE -> seekTo(0L)
+                RepeatMode.ONE -> {
+                    // Seek all'inizio + play esplicito per evitare il doppio ascolto
+                    exoPlayer.seekTo(0L)
+                    exoPlayer.play()
+                }
                 RepeatMode.ALL -> next()
                 RepeatMode.OFF -> {
                     // Fine playlist: ferma gracefully senza errori
@@ -680,6 +930,11 @@ class PlayerManager(
                         }
                     }
                 }
+            }
+            // Rilascia il lock dopo un breve delay per immunizzarsi da STATE_ENDED ridondanti
+            scope.launch {
+                delay(400)
+                isHandlingEnd = false
             }
         }
         
@@ -702,6 +957,26 @@ class PlayerManager(
             Log.w("PlayerManager", "Errore ignorato: arrivato dopo fine naturale del brano")
             return
         }
+
+        val pos = exoPlayer.currentPosition
+        val duration = exoPlayer.duration
+        
+        // Risolve il bug della perdita di connessione a fine brano:
+        // se c'è un errore negli ultimi 5 secondi, consideriamo il brano come terminato normalmente
+        if (duration > 0 && pos >= duration - 5000) {
+            Log.w("PlayerManager", "Errore vicino alla fine del brano, forzo il passaggio al successivo")
+            next()
+            return
+        }
+
+        val currentTrack = _playerState.value.currentTrack
+        if (pos > 0 && currentTrack != null && consecutiveErrors < 2) {
+            Log.d("PlayerManager", "Tentativo di ripristino della traccia da $pos ms")
+            consecutiveErrors++
+            playTrack(currentTrack, _playerState.value.playlist, pos)
+            return
+        }
+
         handlePlaybackError("Errore di riproduzione: verifica la tua connessione.")
     }
 
@@ -761,5 +1036,21 @@ class PlayerManager(
                 next()
             }
         }
+    }
+
+    /** Rilascia tutte le risorse (chiamare quando il PlayerManager viene distrutto). */
+    fun release() {
+        releaseAudioFocus()
+        try {
+            context.unregisterReceiver(becomingNoisyReceiver)
+        } catch (e: IllegalArgumentException) {
+            Log.w("PlayerManager", "BecomingNoisyReceiver già deregistrato")
+        }
+        progressTickerJob?.cancel()
+        extractJob?.cancel()
+        lyricsJob?.cancel()
+        sleepTimerJob?.cancel()
+        equalizerManager.release()
+        exoPlayer.release()
     }
 }

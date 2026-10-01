@@ -7,7 +7,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,9 +60,18 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import java.util.Locale
 import com.muse.app.ui.components.EqualizerBottomSheet
+import com.muse.app.ui.components.CrossfadeBottomSheet
 import com.muse.app.ui.components.SleepTimerDialog
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import com.muse.app.ui.components.RelatedBottomSheet
+import kotlinx.coroutines.delay
+import com.muse.app.share.WhatsAppShareManager
+import kotlinx.coroutines.launch
+import android.widget.Toast
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun FullPlayerScreen(
     playerManager: PlayerManager,
@@ -68,9 +80,12 @@ fun FullPlayerScreen(
     onNavigateToSearch: (String) -> Unit = {},
     onNavigateToAlbum: ((browseId: String, title: String, artist: String, cover: String) -> Unit)? = null,
     onDismiss: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val state by playerManager.playerState.collectAsState()
     val track = state.currentTrack ?: return
     val isCasting by CastManager.isCasting.collectAsState()
@@ -80,6 +95,18 @@ fun FullPlayerScreen(
     var showQueue by remember { mutableStateOf(false) }
     var showEqualizer by remember { mutableStateOf(false) }
     var showSleepTimer by remember { mutableStateOf(false) }
+    var showRelated by remember { mutableStateOf(false) }
+    var showCrossfade by remember { mutableStateOf(false) }
+
+    // Auto-hide controlli in modalità Canvas (video mode)
+    var controlsVisible by remember { mutableStateOf(true) }
+    // Timer per nascondere i controlli dopo 3 secondi di inattività
+    LaunchedEffect(controlsVisible, state.isVideoMode) {
+        if (state.isVideoMode && controlsVisible) {
+            delay(3000L)
+            controlsVisible = false
+        }
+    }
 
     // Rilevamento swipe verso l'alto per aprire la modalità lyrics
     var dragAccumulated by remember { mutableFloatStateOf(0f) }
@@ -111,22 +138,8 @@ fun FullPlayerScreen(
         animationSpec = tween(durationMillis = 800),
         label = "playerAccent"
     )
-    // Animazione pulse sulla copertina (rimbalzo leggero al beat)
-    val infiniteTransition = rememberInfiniteTransition(label = "coverPulse")
-    val coverScaleAnim by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.025f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
-        ),
-        label = "coverScaleAnim"
-    )
-    val animatedCoverScale by animateFloatAsState(
-        targetValue = if (state.isPlaying && !state.isVideoMode) coverScaleAnim else 1f,
-        animationSpec = tween(400),
-        label = "coverScaleFinal"
-    )
+    // Animazione copertina rimossa come richiesto
+    val animatedCoverScale = 1f
     val sliderInteractionSource = remember { MutableInteractionSource() }
 
     Box(
@@ -140,12 +153,18 @@ fun FullPlayerScreen(
                     )
                 )
             )
-            .draggable(
-                state = draggableState,
-                orientation = Orientation.Vertical,
-                onDragStopped = { dragAccumulated = 0f }
-            )
-            // RIMOSSO padding globale qui, perché vogliamo che il video vada full-bleed (sotto la barra di stato/nav)
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = { dragAccumulated = 0f },
+                    onVerticalDrag = { _, dragAmount ->
+                        dragAccumulated += dragAmount
+                        if (dragAccumulated < -140f) {
+                            dragAccumulated = 0f
+                            onNavigateToLyrics()
+                        }
+                    }
+                )
+            }
     ) {
         // --- 1. FULLSCREEN CANVAS LAYER (Motion Artwork) ---
         if (state.isVideoMode) {
@@ -182,9 +201,23 @@ fun FullPlayerScreen(
                         )
                     )
             )
-        }
+            // Tap sul video per mostrare/nascondere i controlli
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
+                        controlsVisible = !controlsVisible
+                    }
+            )
+        } // CHIUSURA di if (state.isVideoMode)
 
         // --- 2. FOREGROUND CONTENT LAYER ---
+        AnimatedVisibility(
+            visible = !state.isVideoMode || controlsVisible,
+            enter = fadeIn(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(300)),
+            modifier = Modifier.fillMaxSize()
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -209,12 +242,30 @@ fun FullPlayerScreen(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Correlati
+                    IconButton(onClick = { showRelated = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Recommend,
+                            contentDescription = "Correlati",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+
                     // Sleep Timer
                     IconButton(onClick = { showSleepTimer = true }) {
                         Icon(
                             imageVector = if (state.sleepTimerRemainingMs > 0) Icons.Default.Nightlight else Icons.Default.BedtimeOff,
                             contentDescription = "Sleep Timer",
                             tint = if (state.sleepTimerRemainingMs > 0) accentColor else MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+
+                    // Crossfade
+                    IconButton(onClick = { showCrossfade = true }) {
+                        Icon(
+                            imageVector = if (state.crossfadeDurationMs > 0) Icons.Default.BlurOn else Icons.Default.BlurOff,
+                            contentDescription = "Crossfade",
+                            tint = if (state.crossfadeDurationMs > 0) accentColor else MaterialTheme.colorScheme.onBackground
                         )
                     }
 
@@ -269,31 +320,9 @@ fun FullPlayerScreen(
                         .aspectRatio(1f, matchHeightConstraintsFirst = false)
                         .padding(vertical = 16.dp)
                 ) {
-                    // Glow ring animato nel colore accent
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer {
-                                scaleX = animatedCoverScale * 1.04f
-                                scaleY = animatedCoverScale * 1.04f
-                            }
-                            .shadow(
-                                elevation = if (state.isPlaying) 28.dp else 8.dp,
-                                shape = RoundedCornerShape(26.dp),
-                                ambientColor = accentColor.copy(alpha = 0.6f),
-                                spotColor = accentColor.copy(alpha = 0.8f)
-                            )
-                            .clip(RoundedCornerShape(26.dp))
-                            .background(accentColor.copy(alpha = if (state.isPlaying) 0.18f else 0f))
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                scaleX = animatedCoverScale
-                                scaleY = animatedCoverScale
-                            }
                             .clip(RoundedCornerShape(24.dp))
                             .background(Color.Black),
                         contentAlignment = Alignment.Center
@@ -539,6 +568,46 @@ fun FullPlayerScreen(
 
                 // Tasti Destri
                 Row(modifier = Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
+                    // Tasto Condividi (solo in modalità Canva/Video)
+                    if (state.isVideoMode) {
+                        var isSharing by remember { mutableStateOf(false) }
+                        IconButton(onClick = {
+                            if (isSharing) return@IconButton
+                            isSharing = true
+                            Toast.makeText(context, "Preparazione video per lo stato (30s)...", Toast.LENGTH_SHORT).show()
+                            
+                            val videoIdToShare = state.currentYouTubeVideoId ?: track.id
+                            scope.launch {
+                                WhatsAppShareManager.shareToWhatsApp(
+                                    context = context,
+                                    track = track,
+                                    videoId = videoIdToShare,
+                                    startMs = state.positionMs,
+                                    onProgress = { /* ignorato, usiamo il CircularProgressIndicator */ },
+                                    onSuccess = { isSharing = false },
+                                    onError = { error ->
+                                        isSharing = false
+                                        Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+                                    }
+                                )
+                            }
+                        }) {
+                            if (isSharing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = Color(0xFF1DB954),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Condividi",
+                                    tint = Color(0xFF1DB954) // Verde come da richiesta
+                                )
+                            }
+                        }
+                    }
+
                     // Tasto Coda
                     IconButton(onClick = { showQueue = true }) {
                         Icon(
@@ -560,6 +629,7 @@ fun FullPlayerScreen(
             }
             }
         }
+        } // chiusura AnimatedVisibility
     }
 
     // Bottom sheet opzioni brano
@@ -580,6 +650,16 @@ fun FullPlayerScreen(
         SmartSpeakerBottomSheet(
             track = track,
             onDismiss = { showSmartSpeaker = false }
+        )
+    }
+
+    // Related bottom sheet
+    if (showRelated) {
+        RelatedBottomSheet(
+            currentTrackId = track.id,
+            musicRepository = musicRepository,
+            playerManager = playerManager,
+            onDismiss = { showRelated = false }
         )
     }
 
@@ -606,6 +686,15 @@ fun FullPlayerScreen(
             onSetTimer = { playerManager.setSleepTimer(it) },
             onCancelTimer = { playerManager.cancelSleepTimer() },
             onDismiss = { showSleepTimer = false }
+        )
+    }
+
+    // Crossfade bottom sheet
+    if (showCrossfade) {
+        CrossfadeBottomSheet(
+            currentDurationMs = state.crossfadeDurationMs,
+            onSetDuration = { playerManager.setCrossfadeDuration(it) },
+            onDismiss = { showCrossfade = false }
         )
     }
 }

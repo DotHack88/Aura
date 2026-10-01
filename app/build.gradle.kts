@@ -14,8 +14,8 @@ android {
         applicationId = "com.muse.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.0.12"
+        versionCode = 14
+        versionName = "1.0.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -101,6 +101,7 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.ui.text.google.fonts)
     debugImplementation(libs.androidx.ui.tooling)
 
     // Coroutines
@@ -142,6 +143,12 @@ dependencies {
     // ExoPlayer OkHttp Extension (utile per il passaggio del downloader)
     implementation("androidx.media3:media3-datasource-okhttp:1.3.1")
 
+    // FFmpeg per estrarre e muxare video (usato per lo stato WhatsApp)
+    // Fork mantenuto dalla community, drop-in replacement di com.arthenica (ritirato apr 2025)
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-https:8.1.7")
+    // Dipendenza transitiva richiesta da ffmpegkit
+    implementation("com.arthenica:smart-exception-java:0.2.1")
+
     // Google Cast SDK (Chromecast / Google Home / Nest Audio)
     implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
     // MediaRouter per discovery dei dispositivi Cast
@@ -149,6 +156,9 @@ dependencies {
 
     // Compose Reorderable per Drag and Drop
     implementation("sh.calvin.reorderable:reorderable:2.1.1")
+    
+    // Core SplashScreen
+    implementation("androidx.core:core-splashscreen:1.0.1")
 }
 
 configurations.all {

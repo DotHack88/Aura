@@ -1,10 +1,13 @@
-﻿package com.muse.app.player
+package com.muse.app.player
 
 import android.content.Context
 import android.content.SharedPreferences
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.util.Log
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 enum class EqPreset(val displayName: String) {
     NORMAL("Normale"),
@@ -24,12 +27,16 @@ class EqualizerManager(private val context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("aura_eq_prefs", Context.MODE_PRIVATE)
 
-    var currentPreset: EqPreset = EqPreset.NORMAL
-        private set
+    // --- StateFlow reattivi: il Composable si aggiorna automaticamente ---
+    private val _currentPreset = MutableStateFlow(EqPreset.NORMAL)
+    val currentPresetFlow: StateFlow<EqPreset> = _currentPreset.asStateFlow()
+    var currentPreset: EqPreset
+        get() = _currentPreset.value
+        private set(v) { _currentPreset.value = v }
 
-    // Valori correnti delle bande in milliBel (-1500 .. +1500)
-    private val _bandLevels = mutableListOf<Int>()
-    val bandLevels: List<Int> get() = _bandLevels.toList()
+    private val _bandLevels = MutableStateFlow<List<Int>>(emptyList())
+    val bandLevelsFlow: StateFlow<List<Int>> = _bandLevels.asStateFlow()
+    val bandLevels: List<Int> get() = _bandLevels.value
 
     val bandCount: Int get() = equalizer?.numberOfBands?.toInt() ?: 5
     val bandFrequencies: List<String>
@@ -47,10 +54,10 @@ class EqualizerManager(private val context: Context) {
             bassBoost = BassBoost(0, audioSessionId).apply { enabled = false }
 
             val bands = equalizer?.numberOfBands?.toInt() ?: 5
-            _bandLevels.clear()
-            repeat(bands) { i ->
-                _bandLevels.add(equalizer?.getBandLevel(i.toShort())?.toInt() ?: 0)
+            val initial = (0 until bands).map { i ->
+                equalizer?.getBandLevel(i.toShort())?.toInt() ?: 0
             }
+            _bandLevels.value = initial
 
             val savedPreset = prefs.getString("eq_preset", EqPreset.NORMAL.name)
             val preset = EqPreset.values().find { it.name == savedPreset } ?: EqPreset.NORMAL
@@ -73,26 +80,37 @@ class EqualizerManager(private val context: Context) {
             EqPreset.JAZZ         -> listOf(300, 100, 0, 200, 300)
             EqPreset.CLASSICA     -> listOf(600, 300, -200, 200, 500)
             EqPreset.ELETTRONICA  -> listOf(500, 300, 0, 300, 600)
-            EqPreset.PERSONALIZZATO -> _bandLevels.toList() // mantieni i livelli correnti
+            EqPreset.PERSONALIZZATO -> {
+                val saved = prefs.getString("eq_custom_bands", null)
+                if (saved != null)
+                    saved.split(",").mapNotNull { it.trim().toIntOrNull() }
+                else
+                    _bandLevels.value
+            }
         }
 
         val bands = equalizer?.numberOfBands?.toInt() ?: 5
+        val updated = _bandLevels.value.toMutableList().also {
+            // Assicura che la lista abbia il numero corretto di bande
+            while (it.size < bands) it.add(0)
+        }
+
         for (i in 0 until minOf(bands, levels.size)) {
             val level = levels[i].toShort()
             try {
                 equalizer?.setBandLevel(i.toShort(), level)
-                if (_bandLevels.size > i) _bandLevels[i] = level.toInt()
+                updated[i] = level.toInt()
             } catch (e: Exception) {
                 Log.w("EqualizerManager", "Errore set band $i: ${e.message}")
             }
         }
+        // Aggiorna il StateFlow → il Composable si ricompone automaticamente
+        _bandLevels.value = updated.toList()
 
-        // Bass boost solo per BASS_BOOST preset
+        // Bass boost solo per BASS_BOOST
         try {
             bassBoost?.enabled = preset == EqPreset.BASS_BOOST
-            if (preset == EqPreset.BASS_BOOST) {
-                bassBoost?.setStrength(800)
-            }
+            if (preset == EqPreset.BASS_BOOST) bassBoost?.setStrength(800)
         } catch (e: Exception) {
             Log.w("EqualizerManager", "BassBoost non supportato: ${e.message}")
         }
@@ -101,9 +119,14 @@ class EqualizerManager(private val context: Context) {
     fun setBandLevel(band: Int, levelMb: Int) {
         try {
             equalizer?.setBandLevel(band.toShort(), levelMb.toShort())
-            if (_bandLevels.size > band) _bandLevels[band] = levelMb
+            val updated = _bandLevels.value.toMutableList()
+            if (updated.size > band) updated[band] = levelMb
+            _bandLevels.value = updated.toList()
             currentPreset = EqPreset.PERSONALIZZATO
-            prefs.edit().putString("eq_preset", EqPreset.PERSONALIZZATO.name).apply()
+            prefs.edit()
+                .putString("eq_preset", EqPreset.PERSONALIZZATO.name)
+                .putString("eq_custom_bands", _bandLevels.value.joinToString(","))
+                .apply()
         } catch (e: Exception) {
             Log.w("EqualizerManager", "setBandLevel error: ${e.message}")
         }

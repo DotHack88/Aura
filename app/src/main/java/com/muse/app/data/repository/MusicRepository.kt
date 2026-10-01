@@ -91,12 +91,16 @@ class MusicRepository(
         // ── 2. Fallback: NewPipe SearchExtractor (nessuna API key) ──
         val newPipeTracks = NewPipeStreamExtractor.searchTracks(query)
         if (newPipeTracks.isNotEmpty()) {
-            val tracks = newPipeTracks.map { item ->
+        val tracks = newPipeTracks.map { item ->
+                val trackId = item["id"] as String
+                val rawThumb = item["thumbnailUrl"] as String
+                val thumb = if (rawThumb.isNotBlank()) rawThumb
+                            else "https://i.ytimg.com/vi/$trackId/hqdefault.jpg"
                 Track(
-                    id           = item["id"] as String,
+                    id           = trackId,
                     title        = item["title"] as String,
                     artist       = item["artist"] as String,
-                    thumbnailUrl = item["thumbnailUrl"] as String,
+                    thumbnailUrl = thumb,
                     durationMs   = item["durationMs"] as Long,
                     viewsText    = item["viewsText"] as? String
                 )
@@ -115,6 +119,7 @@ class MusicRepository(
             }
             return SearchResult(artist = topArtist, popularTracks = popular, allTracks = tracks)
         }
+
 
         return try {
             // ── 3. Ultimo fallback: YouTube Data API ──
@@ -185,7 +190,24 @@ class MusicRepository(
                 allTracks = trackList
             )
         } catch (e: Exception) {
-            getFallbackSearchResult(query)
+            SearchResult(allTracks = emptyList())
+        }
+    }
+
+    suspend fun getRelatedTracks(videoId: String): List<Track> {
+        val newPipeTracks = NewPipeStreamExtractor.getRelatedTracks(videoId)
+        return newPipeTracks.map { item ->
+            val trackId = item["id"] as String
+            val rawThumb = item["thumbnailUrl"] as String
+            Track(
+                id           = trackId,
+                title        = item["title"] as String,
+                artist       = item["artist"] as String,
+                thumbnailUrl = if (rawThumb.isNotBlank()) rawThumb
+                               else "https://i.ytimg.com/vi/$trackId/hqdefault.jpg",
+                durationMs   = item["durationMs"] as Long,
+                album        = null
+            )
         }
     }
 
@@ -238,7 +260,8 @@ class MusicRepository(
                 val artist = snippet?.channelTitle.orEmpty()
                 val thumb = snippet?.thumbnails?.high?.url 
                     ?: snippet?.thumbnails?.medium?.url 
-                    ?: snippet?.thumbnails?.default?.url.orEmpty()
+                    ?: snippet?.thumbnails?.default?.url
+                    ?: "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
 
                 val info = detailsMap[vId]
 
@@ -252,7 +275,7 @@ class MusicRepository(
                 )
             }
         } catch (e: Exception) {
-            getFallbackTracks(query)
+            emptyList()
         }
     }
 
@@ -396,7 +419,7 @@ class MusicRepository(
         return newFavState
     }
 
-    suspend fun recordHistory(track: Track, positionMs: Long) {
+    suspend fun recordHistory(track: Track, positionMs: Long, isNewPlay: Boolean = false) {
         trackDao.insertOrUpdate(
             TrackEntity(
                 id = track.id,
@@ -416,7 +439,7 @@ class MusicRepository(
                 existingHistory.copy(
                     lastPositionMs = positionMs,
                     playedAt = System.currentTimeMillis(),
-                    playCount = existingHistory.playCount + 1
+                    playCount = if (isNewPlay) existingHistory.playCount + 1 else existingHistory.playCount
                 )
             )
         } else {
@@ -453,6 +476,12 @@ class MusicRepository(
         return Playlist(id = entity.id, name = entity.name, coverUrl = entity.coverUrl, createdAt = entity.createdAt)
     }
 
+    fun getPlaylistFlow(id: String): Flow<Playlist?> {
+        return playlistDao.getPlaylistFlow(id).map { entity ->
+            entity?.let { Playlist(id = it.id, name = it.name, coverUrl = it.coverUrl, createdAt = it.createdAt) }
+        }
+    }
+
     fun getPlaylistTracks(playlistId: String): Flow<List<Track>> {
         return playlistDao.getTracksForPlaylist(playlistId).map { list ->
             list.map { it.toDomain() }
@@ -466,6 +495,16 @@ class MusicRepository(
             val playlist = playlistDao.getPlaylistById(playlistId)
             if (playlist != null) {
                 syncService.syncPlaylist(Playlist(id = playlist.id, name = newName, coverUrl = playlist.coverUrl, createdAt = playlist.createdAt, orderIndex = playlist.orderIndex))
+            }
+        } catch (e: Exception) { /* Handled */ }
+    }
+
+    suspend fun updatePlaylistCover(playlistId: String, coverUrl: String?) {
+        playlistDao.updatePlaylistCover(playlistId, coverUrl)
+        try {
+            val playlist = playlistDao.getPlaylistById(playlistId)
+            if (playlist != null) {
+                syncService.syncPlaylist(Playlist(id = playlist.id, name = playlist.name, coverUrl = playlist.coverUrl, createdAt = playlist.createdAt, orderIndex = playlist.orderIndex))
             }
         } catch (e: Exception) { /* Handled */ }
     }
@@ -512,24 +551,53 @@ class MusicRepository(
             PlaylistTrackEntity(
                 playlistId = playlistId,
                 trackId = track.id,
-                orderIndex = System.currentTimeMillis().toInt()
+                orderIndex = (System.currentTimeMillis() / 1000).toInt()
             )
         )
         
-        // Imposta la copertina usando UPDATE sicuro (non REPLACE che triggera CASCADE delete)
+        // Imposta la copertina usando UPDATE sicuro se la playlist non ha ancora una copertina personalizzata
         val playlist = playlistDao.getPlaylistById(playlistId)
         if (playlist != null) {
             val newCover = track.thumbnailUrl.toHighResThumbnail()
-            if (newCover.isNotEmpty() && (playlist.coverUrl.isNullOrEmpty() ||
-                    newCover.length > (playlist.coverUrl?.length ?: 0))) {
+            if (newCover.isNotEmpty() && playlist.coverUrl.isNullOrEmpty()) {
                 playlistDao.updatePlaylistCover(playlistId, newCover)
             }
+            try {
+                val updatedPl = playlistDao.getPlaylistById(playlistId)
+                if (updatedPl != null) {
+                    syncService.syncPlaylist(Playlist(id = updatedPl.id, name = updatedPl.name, coverUrl = updatedPl.coverUrl, createdAt = updatedPl.createdAt, orderIndex = updatedPl.orderIndex))
+                }
+            } catch (e: Exception) { /* Handled */ }
         }
         try {
             syncService.addTrackToPlaylist(playlistId, track)
         } catch (e: Exception) {
             // Handled
         }
+    }
+
+    suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
+        playlistDao.removeTrackFromPlaylist(playlistId, trackId)
+        
+        // Se la copertina era basata su questa traccia o vuota, aggiorna con il primo brano rimanente
+        val remainingTracks = playlistDao.getTracksForPlaylistList(playlistId)
+        val playlist = playlistDao.getPlaylistById(playlistId)
+        if (playlist != null) {
+            val newCover = remainingTracks.firstOrNull()?.thumbnailUrl?.toHighResThumbnail()
+            if (playlist.coverUrl.isNullOrEmpty() || playlist.coverUrl.contains(trackId)) {
+                playlistDao.updatePlaylistCover(playlistId, newCover)
+            }
+            try {
+                val updatedPl = playlistDao.getPlaylistById(playlistId)
+                if (updatedPl != null) {
+                    syncService.syncPlaylist(Playlist(id = updatedPl.id, name = updatedPl.name, coverUrl = updatedPl.coverUrl, createdAt = updatedPl.createdAt, orderIndex = updatedPl.orderIndex))
+                }
+            } catch (e: Exception) { /* Handled */ }
+        }
+        
+        try {
+            syncService.removeTrackFromPlaylist(playlistId, trackId)
+        } catch (e: Exception) { /* Handled */ }
     }
 
     private fun parseIsoDuration(iso: String?): Long {
@@ -599,8 +667,10 @@ class MusicRepository(
 
             val cloudPlaylists = syncService.pullPlaylists()
             cloudPlaylists.forEach { pl ->
+                val localPl = playlistDao.getPlaylistById(pl.id)
+                val effectiveCover = pl.coverUrl ?: localPl?.coverUrl
                 playlistDao.insertPlaylist(
-                    PlaylistEntity(id = pl.id, name = pl.name, coverUrl = pl.coverUrl, createdAt = pl.createdAt)
+                    PlaylistEntity(id = pl.id, name = pl.name, coverUrl = effectiveCover, createdAt = pl.createdAt)
                 )
                 val tracks = syncService.pullPlaylistTracks(pl.id)
                 tracks.forEachIndexed { index, track ->
@@ -616,6 +686,10 @@ class MusicRepository(
                     playlistDao.insertTrackToPlaylist(
                         PlaylistTrackEntity(playlistId = pl.id, trackId = track.id, orderIndex = index)
                     )
+                }
+                if (effectiveCover.isNullOrEmpty() && tracks.isNotEmpty()) {
+                    val firstCover = tracks.first().thumbnailUrl.toHighResThumbnail()
+                    playlistDao.updatePlaylistCover(pl.id, firstCover)
                 }
             }
 
@@ -656,75 +730,4 @@ class MusicRepository(
         }
     }
 
-    private fun getFallbackSearchResult(query: String): SearchResult {
-        val tracks = getFallbackTracks(query)
-        val q = query.lowercase().trim()
-        
-        val artist = when {
-            q.contains("door") -> Artist(
-                id = "UCYgJ2M1mq8Ae0QOm_VQU4VQ",
-                name = "The Doors",
-                handle = "@thedoors",
-                avatarUrl = "https://yt3.ggpht.com/ytc/AIdro_mZTGUIYi8SI6Nagbahpnet6180BvSUl4y7Ou1a6FyaPIU=s176-c-k-c0x00ffffff-no-rj-mo",
-                bannerUrl = "https://lh3.googleusercontent.com/nH10XKwzW-GZY_OFCnGt97pPSLxOXixenPsts2be2zTXqg2OFk6jHqk51k6FsqB1ln_-YkNniJjUlSzc=w600-h176-p",
-                subscribersText = "1,5 Mln di iscritti",
-                videoCountText = "570 video",
-                isVerified = true
-            )
-            q.contains("linkin") || q.contains("park") -> Artist(
-                id = "UCZU9T1ceaOgwfLRq7OKFU4Q",
-                name = "Linkin Park",
-                handle = "@LinkinPark",
-                avatarUrl = "https://yt3.googleusercontent.com/OtUf050j6w6iRPUmGgmzblD2saluxUusxiVmo0-SMUnWiNKwR89JL_-xJ6JvIEram8UbPT_zDA=s176-c-k-c0x00ffffff-no-rj-mo",
-                bannerUrl = "https://lh3.googleusercontent.com/uE72emEZFH3TVtCZoIFYKmnf7vsb42RYQxb4X-lonyqPQuS_mLtKpLfBQ5JdHwUijfQo06BtSB7LoQ=w600-h176-p",
-                subscribersText = "25,2 Mln di iscritti",
-                videoCountText = "1,1K video",
-                isVerified = true
-            )
-            q.contains("queen") -> Artist(
-                id = "UC24mrxfnn6C0EfZcWv758tA",
-                name = "Queen Official",
-                handle = "@QueenOfficial",
-                avatarUrl = "https://yt3.googleusercontent.com/fA71Q2uQpM7nC15lR-1wU-f54yE4N3Yq4A_l8m8k=s176-c-k-c0x00ffffff-no-rj-mo",
-                bannerUrl = "https://lh3.googleusercontent.com/uE72emEZFH3TVtCZoIFYKmnf7vsb42RYQxb4X-lonyqPQuS_mLtKpLfBQ5JdHwUijfQo06BtSB7LoQ=w600-h176-p",
-                subscribersText = "18,1 Mln di iscritti",
-                videoCountText = "850 video",
-                isVerified = true
-            )
-            q.contains("weeknd") -> Artist(
-                id = "UC0WP5P-ufpRfjbNrmOWwLBQ",
-                name = "The Weeknd",
-                handle = "@TheWeeknd",
-                avatarUrl = "https://yt3.googleusercontent.com/e2A2zZ9n2w=s176-c-k-c0x00ffffff-no-rj-mo",
-                subscribersText = "34,8 Mln di iscritti",
-                videoCountText = "180 video",
-                isVerified = true
-            )
-            else -> {
-                // Genera dinamicamente la Official Artist Card per qualsiasi artista ricercato
-                val firstTrack = tracks.firstOrNull()
-                if (firstTrack != null && (q.length >= 3)) {
-                    Artist(
-                        id = "channel_${firstTrack.id}",
-                        name = firstTrack.artist.replace("Official", "").replace("VEVO", "").trim(),
-                        handle = "@${firstTrack.artist.replace(" ", "").lowercase()}",
-                        avatarUrl = firstTrack.thumbnailUrl,
-                        subscribersText = "Canale Musicale Ufficiale",
-                        videoCountText = "${tracks.size} brani",
-                        isVerified = true
-                    )
-                } else null
-            }
-        }
-
-        return SearchResult(
-            artist = artist,
-            popularTracks = tracks.take(6),
-            allTracks = tracks
-        )
-    }
-
-    private fun getFallbackTracks(query: String): List<Track> {
-        return emptyList()
-    }
 }

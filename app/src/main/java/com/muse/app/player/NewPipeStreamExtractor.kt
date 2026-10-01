@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.downloader.Downloader
@@ -22,11 +23,14 @@ import java.util.concurrent.TimeUnit
 object NewPipeStreamExtractor {
     private const val TAG = "NewPipeExtractor"
 
-    // User-Agent realistico per evitare blocchi di YouTube
     private const val USER_AGENT =
         "Mozilla/5.0 (Linux; Android 13; Pixel 7) " +
         "AppleWebKit/537.36 (KHTML, like Gecko) " +
         "Chrome/116.0.0.0 Mobile Safari/537.36"
+
+    private val audioStreamCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
+    private val videoStreamCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
+    private const val CACHE_TTL_MS = 30 * 60 * 1000L // 30 minuti
 
     fun init(context: Context) {
         val okHttpClient = OkHttpClient.Builder()
@@ -70,7 +74,7 @@ object NewPipeStreamExtractor {
                         return Response(
                             response.code,
                             response.message,
-                            mapOf("Location" to listOf(response.header("Location")!!)),
+                            mapOf("Location" to listOf(response.header("Location") ?: url)),
                             "",
                             url
                         )
@@ -103,17 +107,107 @@ object NewPipeStreamExtractor {
      * Prova prima gli stream DASH, poi fallback sugli stream progressivi HLS.
      * Restituisce null solo se non trova nulla o si verifica un errore non recuperabile.
      */
+    /**
+     * Recupera l'URL HLS/stream per un live stream YouTube.
+     * Usa il Piped API (istanza pubblica) come fonte principale — non richiede auth.
+     * Fallback su NewPipe hlsUrl se Piped non è disponibile.
+     */
+    suspend fun getLiveStreamUrl(videoId: String): String? = withContext(Dispatchers.IO) {
+        // Lista di istanze Piped pubbliche da provare in ordine
+        val pipedInstances = listOf(
+            "https://pipedapi.kavin.rocks",
+            "https://piped-api.garudalinux.org",
+            "https://api.piped.yt"
+        )
+
+        val pipedClient = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build()
+
+        for (instance in pipedInstances) {
+            try {
+                val request = okhttp3.Request.Builder()
+                    .url("$instance/streams/$videoId")
+                    .header("User-Agent", USER_AGENT)
+                    .build()
+                val response = pipedClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: continue
+                    val json = JSONObject(body)
+                    val hlsUrl = json.optString("hls", "")
+                    if (hlsUrl.isNotEmpty()) {
+                        Log.d(TAG, "Piped HLS per live $videoId: ${hlsUrl.take(80)}…")
+                        return@withContext hlsUrl
+                    }
+                    // Prova anche audioStreams
+                    val audioStreams = json.optJSONArray("audioStreams")
+                    if (audioStreams != null && audioStreams.length() > 0) {
+                        val best = (0 until audioStreams.length())
+                            .map { audioStreams.getJSONObject(it) }
+                            .maxByOrNull { it.optInt("bitrate", 0) }
+                        val url = best?.optString("url", "") ?: ""
+                        if (url.isNotEmpty()) {
+                            Log.d(TAG, "Piped audioStream per live $videoId")
+                            return@withContext url
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Piped instance $instance fallita per $videoId: ${e.message}")
+            }
+        }
+
+        // Fallback: NewPipe
+        Log.d(TAG, "Piped fallito, provo NewPipe HLS per $videoId")
+        try {
+            val pageUrl = "https://www.youtube.com/watch?v=$videoId"
+            val extractor = ServiceList.YouTube.getStreamExtractor(pageUrl)
+            extractor.fetchPage()
+            val hlsUrl = extractor.hlsUrl
+            if (!hlsUrl.isNullOrEmpty()) {
+                Log.d(TAG, "NewPipe HLS fallback per live $videoId")
+                return@withContext hlsUrl
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "NewPipe fallito per live $videoId: ${e.message}")
+        }
+
+        Log.e(TAG, "Impossibile ottenere live stream per $videoId")
+        null
+    }
+
     suspend fun getAudioStreamUrl(videoId: String): String? = withContext(Dispatchers.IO) {
+        val cached = audioStreamCache[videoId]
+        if (cached != null && System.currentTimeMillis() - cached.second < CACHE_TTL_MS) {
+            Log.d(TAG, "Restituito audio stream da cache per $videoId")
+            return@withContext cached.first
+        }
         try {
             val pageUrl  = "https://www.youtube.com/watch?v=$videoId"
             val extractor = ServiceList.YouTube.getStreamExtractor(pageUrl)
             extractor.fetchPage()
+
+            if (extractor.streamType == org.schabi.newpipe.extractor.stream.StreamType.LIVE_STREAM) {
+                val hlsUrl = extractor.hlsUrl
+                if (!hlsUrl.isNullOrEmpty()) {
+                    Log.d(TAG, "NewPipe Audio: Restituisco HLS per LIVE_STREAM $videoId")
+                    audioStreamCache[videoId] = hlsUrl to System.currentTimeMillis()
+                    return@withContext hlsUrl
+                }
+            }
 
             val audioStreams = extractor.audioStreams
             Log.d(TAG, "NewPipe: trovati ${audioStreams.size} audio stream per $videoId")
 
             if (audioStreams.isEmpty()) {
                 Log.w(TAG, "Nessun audio stream trovato per $videoId")
+                val hlsUrl = extractor.hlsUrl
+                if (!hlsUrl.isNullOrEmpty()) {
+                     Log.d(TAG, "NewPipe Audio: Fallback su HLS per $videoId")
+                     audioStreamCache[videoId] = hlsUrl to System.currentTimeMillis()
+                     return@withContext hlsUrl
+                }
                 return@withContext null
             }
 
@@ -137,6 +231,7 @@ object NewPipeStreamExtractor {
             }
 
             Log.d(TAG, "NewPipe OK per $videoId: ${best.averageBitrate}kbps | url=${url.take(80)}…")
+            audioStreamCache[videoId] = url to System.currentTimeMillis()
             return@withContext url
 
         } catch (e: Exception) {
@@ -150,6 +245,11 @@ object NewPipeStreamExtractor {
      * Preferisce DASH manifest (che include video HD e audio) se disponibile.
      */
     suspend fun getVideoStreamUrl(videoId: String): String? = withContext(Dispatchers.IO) {
+        val cached = videoStreamCache[videoId]
+        if (cached != null && System.currentTimeMillis() - cached.second < CACHE_TTL_MS) {
+            Log.d(TAG, "Restituito video stream da cache per $videoId")
+            return@withContext cached.first
+        }
         try {
             val pageUrl = "https://www.youtube.com/watch?v=$videoId"
             val extractor = ServiceList.YouTube.getStreamExtractor(pageUrl)
@@ -159,6 +259,7 @@ object NewPipeStreamExtractor {
             val dashUrl = extractor.dashMpdUrl
             if (!dashUrl.isNullOrEmpty()) {
                 Log.d(TAG, "NewPipe Video: Usa DASH manifest per $videoId")
+                videoStreamCache[videoId] = dashUrl to System.currentTimeMillis()
                 return@withContext dashUrl
             }
 
@@ -171,14 +272,19 @@ object NewPipeStreamExtractor {
 
             if (progressive.isNotEmpty()) {
                 val best = progressive.firstOrNull { it.height <= 720 } ?: progressive.first()
-                Log.d(TAG, "NewPipe Video: Usa stream progressivo per $videoId: ${best.height}p")
-                return@withContext best.content
+                val url = best.content
+                if (!url.isNullOrEmpty()) {
+                    Log.d(TAG, "NewPipe Video: Usa stream progressivo per $videoId: ${best.height}p")
+                    videoStreamCache[videoId] = url to System.currentTimeMillis()
+                    return@withContext url
+                }
             }
 
             // Ultima risorsa HLS
             val hlsUrl = extractor.hlsUrl
             if (!hlsUrl.isNullOrEmpty()) {
                 Log.d(TAG, "NewPipe Video: Fallback su HLS per $videoId")
+                videoStreamCache[videoId] = hlsUrl to System.currentTimeMillis()
                 return@withContext hlsUrl
             }
 
@@ -214,6 +320,51 @@ object NewPipeStreamExtractor {
             Log.d(TAG, "NewPipe Search: trovati ${results.size} risultati per \"$query\"")
 
             results.map { item ->
+                val videoId = item.url.let { url ->
+                    when {
+                        url.contains("v=") -> url.substringAfter("v=").substringBefore("&")
+                        url.contains("podcast/") -> url.substringAfter("podcast/").substringBefore("?")
+                        url.contains(".be/") -> url.substringAfter(".be/").substringBefore("?")
+                        else -> url.substringAfterLast("/").substringBefore("?")
+                    }
+                }
+                val thumbUrl = item.thumbnails.maxByOrNull { it.height }?.url 
+                    ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+                    
+                mapOf<String, Any>(
+                    "id"           to videoId,
+                    "title"        to item.name,
+                    "artist"       to (item.uploaderName ?: ""),
+                    "thumbnailUrl" to thumbUrl,
+                    "durationMs"   to (if (item.duration > 0) item.duration * 1000L else 210_000L),
+                    "viewsText"    to formatViews(item.viewCount)
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore ricerca NewPipe per \"$query\": ${e.javaClass.simpleName} - ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Recupera i brani correlati (Related Items) a un videoId specifico tramite NewPipe.
+     * Usa StreamInfo.getInfo() che espone relatedItems come List<InfoItem>, identico a SearchInfo.
+     */
+    suspend fun getRelatedTracks(videoId: String, maxResults: Int = 20): List<Map<String, Any>> = withContext(Dispatchers.IO) {
+        try {
+            val pageUrl = "https://www.youtube.com/watch?v=$videoId"
+            val streamInfo = org.schabi.newpipe.extractor.stream.StreamInfo.getInfo(
+                ServiceList.YouTube,
+                pageUrl
+            )
+
+            val relatedItems = streamInfo.relatedItems
+                .filterIsInstance<StreamInfoItem>()
+                .take(maxResults)
+
+            Log.d(TAG, "NewPipe Related: trovati ${relatedItems.size} correlati per $videoId")
+
+            relatedItems.map { item ->
                 mapOf<String, Any>(
                     "id"           to (item.url.substringAfter("v=").substringBefore("&")),
                     "title"        to item.name,
@@ -224,7 +375,7 @@ object NewPipeStreamExtractor {
                 )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Errore ricerca NewPipe per \"$query\": ${e.javaClass.simpleName} - ${e.message}")
+            Log.e(TAG, "Errore estrazione correlati NewPipe per $videoId: ${e.javaClass.simpleName} - ${e.message}")
             emptyList()
         }
     }

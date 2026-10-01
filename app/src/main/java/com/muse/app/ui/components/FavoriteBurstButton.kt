@@ -65,7 +65,7 @@ fun FavoriteBurstButton(
             .clip(CircleShape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = androidx.compose.material.ripple.rememberRipple(bounded = false, radius = 24.dp),
+                indication = androidx.compose.material3.ripple(bounded = false, radius = 24.dp),
                 onClick = onClick
             ),
         contentAlignment = Alignment.Center

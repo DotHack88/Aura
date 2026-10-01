@@ -1,9 +1,13 @@
 package com.muse.app.ui.components
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -15,24 +19,31 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.muse.app.cast.CastManager
 import com.muse.app.domain.model.PlayerState
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun MiniPlayer(
     playerState: PlayerState,
     onExpand: () -> Unit,
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
+    onPrevious: () -> Unit = {},
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier
 ) {
+    // Swipe gesture state
+    var swipeDeltaX by remember { mutableFloatStateOf(0f) }
+    val swipeThreshold = 80f
     val track = playerState.currentTrack ?: return
     val isCasting by CastManager.isCasting.collectAsState()
 
@@ -66,6 +77,20 @@ fun MiniPlayer(
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(18.dp))
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        when {
+                            swipeDeltaX < -swipeThreshold -> onNext()
+                            swipeDeltaX > swipeThreshold -> onPrevious()
+                        }
+                        swipeDeltaX = 0f
+                    },
+                    onHorizontalDrag = { _, dragAmount ->
+                        swipeDeltaX += dragAmount
+                    }
+                )
+            }
             .clickable { onExpand() }
     ) {
         // Sfondo glassmorphism: gradiente dominante semi-trasparente + overlay scuro
@@ -112,12 +137,22 @@ fun MiniPlayer(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Thumbnail
+                // Thumbnail con shared element per transizione fluida verso il Full Player
+                val thumbnailModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                    with(sharedTransitionScope) {
+                        Modifier.sharedBounds(
+                            rememberSharedContentState(key = "player-cover"),
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(10.dp))
+                        )
+                    }
+                } else Modifier
                 MuseThumbnail(
                     url = track.thumbnailUrl,
                     contentDescription = null,
                     size = 44.dp,
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = thumbnailModifier
                 )
 
                 Spacer(modifier = Modifier.width(12.dp))

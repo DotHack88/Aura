@@ -3,6 +3,7 @@ package com.muse.app.ui.components
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -299,51 +300,72 @@ private fun AlexaInfoRow(context: Context) {
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("🔵", style = MaterialTheme.typography.titleLarge)
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "Amazon Alexa",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                )
-                Text(
-                    if (alexaInstalled)
-                        "Apri l'app Alexa per gestire la riproduzione su Echo."
-                    else
-                        "Alexa non supporta lo streaming diretto da app esterne. Installa l'app Alexa per controllare i tuoi Echo.",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🔵", style = MaterialTheme.typography.titleLarge)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Amazon Alexa",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
                     )
-                )
+                    Text(
+                        if (alexaInstalled)
+                            "Connetti via Bluetooth o apri l'app Alexa per gestire la riproduzione su Echo."
+                        else
+                            "Connetti il dispositivo Echo via Bluetooth per ascoltare la musica direttamente.",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                        )
+                    )
+                }
             }
-        }
-        if (alexaInstalled) {
-            TextButton(
-                onClick = {
-                    val intent = context.packageManager.getLaunchIntentForPackage(alexaPackage)
-                    if (intent != null) context.startActivity(intent)
-                },
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .padding(end = 8.dp, bottom = 4.dp)
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Riga pulsanti
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Apri Alexa")
-            }
-        } else {
-            TextButton(
-                onClick = {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id="))
-                    context.startActivity(intent)
-                },
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .padding(end = 8.dp, bottom = 4.dp)
-            ) {
-                Text("Installa Alexa")
+                // Pulsante Bluetooth — apre le impostazioni BT di sistema
+                FilledTonalButton(
+                    onClick = {
+                        val btIntent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+                        btIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        context.startActivity(btIntent)
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("🔵 Bluetooth")
+                }
+
+                if (alexaInstalled) {
+                    FilledTonalButton(
+                        onClick = {
+                            val intent = context.packageManager.getLaunchIntentForPackage(alexaPackage)
+                            if (intent != null) context.startActivity(intent)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Apri Alexa")
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$alexaPackage"))
+                                context.startActivity(intent)
+                            } catch (e: android.content.ActivityNotFoundException) {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$alexaPackage"))
+                                context.startActivity(intent)
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Installa Alexa")
+                    }
+                }
             }
         }
     }
