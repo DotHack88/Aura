@@ -149,13 +149,13 @@ class PlayerManager(
      * escludendo i brani già presenti in coda. I candidati vengono ordinati per playCount locale
      * (proxy di gradimento) con un bonus per gli artisti già ascoltati nella sessione.
      */
-    private fun generateRadioQueue(seedId: String, currentPlaylist: List<Track>, params: String? = null) {
+    private fun generateRadioQueue(seedId: String, currentPlaylist: List<Track>, params: String? = null, appendTracks: Boolean = true) {
         if (isRadioRefilling) return
         isRadioRefilling = true
         radioRefillJob?.cancel()
         radioRefillJob = scope.launch {
             try {
-                Log.d("MuseRadio", "Refill coda da seme: $seedId (sessione artisti: $sessionArtists)")
+                Log.d("MuseRadio", "Refill coda da seme: $seedId appendTracks=$appendTracks (sessione artisti: $sessionArtists)")
                 val upNext = musicRepository.getUpNext(seedId, params)
                 val candidates = upNext.tracks
                 
@@ -164,6 +164,12 @@ class PlayerManager(
                         upNextChips = upNext.chips,
                         selectedChip = upNext.chips.find { c -> c.isSelected }?.title
                     ) }
+                }
+
+                // Se appendTracks=false, aggiorniamo solo i chip senza modificare la playlist
+                if (!appendTracks) {
+                    Log.d("MuseRadio", "Chip aggiornati (${upNext.chips.size}), nessun brano aggiunto alla coda")
+                    return@launch
                 }
                 
                 val existingIds = currentPlaylist.map { it.id }.toSet()
@@ -388,14 +394,17 @@ class PlayerManager(
         signalReached30s = false
         signalReached50pct = false
         signalReachedComplete = false
-        // Se il brano è avviato da singolo (nessuna playlist preesistente), genera la coda iniziale
+        radioSeedTrackId = track.id
         if (playlist.size == 1) {
-            radioSeedTrackId = track.id
+            // Brano singolo: genera la coda radio completa (chip + brani)
             sessionArtists.clear()
             sessionArtists.add(track.artist)
-            generateRadioQueue(track.id, listOf(track))
+            generateRadioQueue(track.id, listOf(track), appendTracks = true)
         } else {
-            // Playlist già esistente: controlla se la coda è quasi esaurita e integra
+            // Playlist già esistente (es. ricerca, album): recupera solo i chip senza
+            // sovrascrivere i brani della coda. Poi controlla se occorre un refill.
+            sessionArtists.add(track.artist)
+            generateRadioQueue(track.id, playlist, appendTracks = false)
             maybeRefillQueue()
         }
 

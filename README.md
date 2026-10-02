@@ -1,6 +1,6 @@
 # Aura 🎵 — Native Android Music Player
 
-![Version](https://img.shields.io/badge/versione-1.0.16-blueviolet?style=flat-square)
+![Version](https://img.shields.io/badge/versione-1.0.17-blueviolet?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Android%208.0%2B-green?style=flat-square)
 ![Build](https://img.shields.io/badge/build-release-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
@@ -15,8 +15,8 @@
 
 | # | Versione | Tipo | File | Note |
 |---|----------|------|------|------|
-| 1 | 1.0.16 | 🐛 Debug | [`app-debug.apk`](app/build/outputs/apk/debug/app-debug.apk) | Test/sviluppo, debugger USB |
-| 2 | 1.0.16 | 🚀 Release | [`Aura-1.0.16-release.apk`](app/build/outputs/apk/release/Aura-1.0.16-release.apk) | Ottimizzato R8, ~30-50% più piccolo |
+| 1 | 1.0.17 | 🐛 Debug | [`app-debug.apk`](app/build/outputs/apk/debug/app-debug.apk) | Test/sviluppo, debugger USB |
+| 2 | 1.0.17 | 🚀 Release | [`Aura-1.0.17-release.apk`](app/build/outputs/apk/release/Aura-1.0.17-release.apk) | Ottimizzato R8, ~30-50% più piccolo |
 
 ### ⚠️ Tipo di build: Debug vs Release
 
@@ -97,6 +97,7 @@
 
 | Versione | Note |
 |----------|------|
+| **1.0.17** | 🐛 Fix chip «A seguire» nella ricerca: i tag mood/genere (Familiare, R&B, Relax…) ora appaiono sempre nella coda, anche riproducendo brani dalla ricerca o da un album. Introdotto parametro `appendTracks` in `generateRadioQueue` per separare il recupero dei chip dall'aggiunta di brani radio |
 | **1.0.16** | 🎛️ Chip Filter «A seguire»: filtri mood/genere nella coda radio (Familiare, R&B, Relax, Anni '90…), coda ridisegnata stile YouTube Music con sezione «In riproduzione» + «A seguire», playlistId RDAMVM per attivare il chip cloud |
 | **1.0.15** | ✨ Muse Radio Engine v1: coda dinamica intelligente, ranking dei preferiti, supporto profili di sessione |
 | **1.0.14** | Testo orizzontale, fix disconnessione, radio statica iniziale |
