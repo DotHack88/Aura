@@ -103,6 +103,108 @@ class PlayerManager(
     var mediaController: MediaController? = null
         private set
 
+    // ─── Muse Radio Engine ────────────────────────────────────────────────────
+    /** Job per il riempimento asincrono della coda radio */
+    private var radioRefillJob: Job? = null
+    /** True mentre è in corso un fetch di nuovi candidati (evita fetch paralleli) */
+    private var isRadioRefilling = false
+    /** ID del brano seme corrente della radio: l'ultimo brano ascoltato sostanzialmente (>30s) */
+    private var radioSeedTrackId: String? = null
+    /** Artisti ascoltati nella sessione corrente — usati per il ranking dei candidati */
+    private val sessionArtists = mutableListOf<String>()
+    /** Segnali di ascolto — soglie raggiunte per il brano corrente */
+    private var signalReached30s = false
+    private var signalReached50pct = false
+    private var signalReachedComplete = false
+
+    /** Tipi di segnale ascolto per il ranking locale */
+    private enum class ListenSignal {
+        SKIP_SHORT,   // skip < 10s   → −5
+        SKIP_LONG,    // skip < 30s   → −3
+        PLAYED_30S,   // ascolto > 30s → +2
+        PLAYED_50PCT, // ascolto > 50% → +3
+        COMPLETED,    // ascolto completo → +4
+        REPLAY        // replay → +5
+    }
+
+    /** Aggiorna il punteggio locale di un brano tramite il repository (proxy del peso di gradimento). */
+    private fun recordListenSignal(trackId: String, signal: ListenSignal) {
+        if (trackId.isBlank()) return
+        val delta = when (signal) {
+            ListenSignal.SKIP_SHORT   -> -5
+            ListenSignal.SKIP_LONG    -> -3
+            ListenSignal.PLAYED_30S   ->  2
+            ListenSignal.PLAYED_50PCT ->  3
+            ListenSignal.COMPLETED    ->  4
+            ListenSignal.REPLAY       ->  5
+        }
+        scope.launch {
+            musicRepository.adjustTrackScore(trackId, delta)
+            Log.d("MuseRadio", "Signal $signal (Δ$delta) → $trackId")
+        }
+    }
+
+    /**
+     * Genera nuovi candidati radio a partire da [seedId] e li appende alla playlist corrente,
+     * escludendo i brani già presenti in coda. I candidati vengono ordinati per playCount locale
+     * (proxy di gradimento) con un bonus per gli artisti già ascoltati nella sessione.
+     */
+    private fun generateRadioQueue(seedId: String, currentPlaylist: List<Track>) {
+        if (isRadioRefilling) return
+        isRadioRefilling = true
+        radioRefillJob?.cancel()
+        radioRefillJob = scope.launch {
+            try {
+                Log.d("MuseRadio", "Refill coda da seme: $seedId (sessione artisti: $sessionArtists)")
+                val candidates = musicRepository.getRelatedTracks(seedId)
+                val existingIds = currentPlaylist.map { it.id }.toSet()
+
+                // Recupera i punteggi dalla history locale per il ranking
+                val scored = candidates
+                    .filter { it.id !in existingIds }
+                    .map { track ->
+                        val baseScore = musicRepository.getTrackScore(track.id).toFloat()
+                        // Bonus sessione: +3 se l'artista è già nella sessione corrente
+                        val sessionBonus = if (sessionArtists.any {
+                                it.equals(track.artist, ignoreCase = true)
+                            }) 3f else 0f
+                        Pair(track, baseScore + sessionBonus)
+                    }
+                    .sortedByDescending { it.second }
+                    .map { it.first }
+                    .take(15)
+
+                if (scored.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        val state = _playerState.value
+                        // Ricontrolla che il brano seme sia ancora quello corrente o vicino
+                        val newPlaylist = state.playlist + scored
+                        _playerState.update { it.copy(playlist = newPlaylist) }
+                        Log.d("MuseRadio", "Aggiunti ${scored.size} brani alla coda (tot: ${newPlaylist.size})")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MuseRadio", "Errore refill coda radio", e)
+            } finally {
+                isRadioRefilling = false
+            }
+        }
+    }
+
+    /**
+     * Controlla se la coda ha meno di 3 brani in avanti rispetto al brano corrente.
+     * Se sì, richiede un refill usando il seme radio attuale (ultimo brano ascoltato >30s).
+     */
+    private fun maybeRefillQueue() {
+        val state = _playerState.value
+        val tracksAhead = state.playlist.size - state.currentIndex - 1
+        Log.d("MuseRadio", "Brani rimanenti in coda: $tracksAhead")
+        if (tracksAhead <= 3) {
+            val seed = radioSeedTrackId ?: state.currentTrack?.id ?: return
+            generateRadioQueue(seed, state.playlist)
+        }
+    }
+
     // ─── Audio Focus ─────────────────────────────────────────────────────────
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     /** True se la pausa è stata causata da noi a seguito di un focus loss (per riprendere al GAIN) */
@@ -256,24 +358,19 @@ class PlayerManager(
         _currentLyrics.value = null
         loadLyricsForTrack(track)
 
-        // ── Auto-Radio (Related Tracks) ──
+        // ── Muse Radio Engine: avvio / reset segnali per il nuovo brano ──
+        signalReached30s = false
+        signalReached50pct = false
+        signalReachedComplete = false
+        // Se il brano è avviato da singolo (nessuna playlist preesistente), genera la coda iniziale
         if (playlist.size == 1) {
-            scope.launch {
-                try {
-                    val related = musicRepository.getRelatedTracks(track.id)
-                    if (related.isNotEmpty()) {
-                        val newPlaylist = listOf(track) + related.filter { it.id != track.id }
-                        withContext(Dispatchers.Main) {
-                            if (_playerState.value.currentTrack?.id == track.id) {
-                                _playerState.update { it.copy(playlist = newPlaylist) }
-                                Log.d("PlayerManager", "Auto-Radio: aggiunti ${related.size} brani correlati")
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("PlayerManager", "Errore Auto-Radio", e)
-                }
-            }
+            radioSeedTrackId = track.id
+            sessionArtists.clear()
+            sessionArtists.add(track.artist)
+            generateRadioQueue(track.id, listOf(track))
+        } else {
+            // Playlist già esistente: controlla se la coda è quasi esaurita e integra
+            maybeRefillQueue()
         }
 
         // === CAST: Se c'è una sessione Google Cast attiva, delega il playback a CastManager ===
@@ -680,6 +777,19 @@ class PlayerManager(
         val state = _playerState.value
         if (state.playlist.isEmpty()) return
 
+        // ── Muse Radio: segnale skip sul brano corrente ──
+        val currentPos = exoPlayer.currentPosition
+        state.currentTrack?.let { current ->
+            if (!signalReachedComplete && !signalReached30s) {
+                // Skip prima dei 10 secondi
+                if (currentPos < 10_000L) {
+                    recordListenSignal(current.id, ListenSignal.SKIP_SHORT)
+                } else if (currentPos < 30_000L) {
+                    recordListenSignal(current.id, ListenSignal.SKIP_LONG)
+                }
+            }
+        }
+
         val nextIndex = if (state.shuffle && state.playlist.size > 1) {
             var randomIndex: Int
             do {
@@ -699,6 +809,12 @@ class PlayerManager(
             }
         }
         val nextTrack = state.playlist[nextIndex]
+        // Controlla se riempire la coda prima di avanzare
+        val tracksAhead = state.playlist.size - nextIndex - 1
+        if (tracksAhead <= 3) {
+            val seed = radioSeedTrackId ?: nextTrack.id
+            generateRadioQueue(seed, state.playlist)
+        }
         playTrack(nextTrack, state.playlist)
     }
 
@@ -851,6 +967,30 @@ class PlayerManager(
                         }
                     }
 
+                    // ── Muse Radio: segnali di ascolto progressivi ──
+                    val radioState = _playerState.value
+                    radioState.currentTrack?.let { current ->
+                        if (duration > 0) {
+                            // Segnale >30 secondi
+                            if (!signalReached30s && currentPos >= 30_000L) {
+                                signalReached30s = true
+                                recordListenSignal(current.id, ListenSignal.PLAYED_30S)
+                                // Aggiorna il seme radio all'ultimo brano ascoltato sostanzialmente
+                                radioSeedTrackId = current.id
+                                if (!sessionArtists.contains(current.artist)) {
+                                    sessionArtists.add(current.artist)
+                                }
+                                Log.d("MuseRadio", "30s ascoltati: ${current.title} — seme: ${current.id}")
+                            }
+                            // Segnale >50%
+                            if (!signalReached50pct && currentPos >= duration / 2) {
+                                signalReached50pct = true
+                                recordListenSignal(current.id, ListenSignal.PLAYED_50PCT)
+                                Log.d("MuseRadio", "50% ascoltato: ${current.title}")
+                            }
+                        }
+                    }
+
                     // === CROSSFADE: pre-avvio del prossimo brano ===
                     val state = _playerState.value
                     val crossfadeMs = state.crossfadeDurationMs
@@ -909,9 +1049,28 @@ class PlayerManager(
             isHandlingEnd = true
             isNaturalEnd = true
             val state = _playerState.value
+
+            // ── Muse Radio: segnale COMPLETED sul brano corrente ──
+            if (!signalReachedComplete) {
+                signalReachedComplete = true
+                state.currentTrack?.let { current ->
+                    recordListenSignal(current.id, ListenSignal.COMPLETED)
+                    // Aggiorna il seme radio all'ultimo brano completato
+                    radioSeedTrackId = current.id
+                    if (!sessionArtists.contains(current.artist)) {
+                        sessionArtists.add(current.artist)
+                    }
+                    Log.d("MuseRadio", "Brano completato: ${current.title} — seme aggiornato")
+                }
+            }
+
             when (state.repeat) {
                 RepeatMode.ONE -> {
                     // Seek all'inizio + play esplicito per evitare il doppio ascolto
+                    signalReachedComplete = false
+                    signalReached30s = false
+                    signalReached50pct = false
+                    recordListenSignal(state.currentTrack?.id ?: "", ListenSignal.REPLAY)
                     exoPlayer.seekTo(0L)
                     exoPlayer.play()
                 }
@@ -1050,6 +1209,7 @@ class PlayerManager(
         extractJob?.cancel()
         lyricsJob?.cancel()
         sleepTimerJob?.cancel()
+        radioRefillJob?.cancel()
         equalizerManager.release()
         exoPlayer.release()
     }

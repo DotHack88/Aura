@@ -99,3 +99,205 @@
 |----------|------|
 | **1.0.14** | Testo orizzontale, fix disconnessione, radio automatica |
 | **1.0.12** | Build precedente — debug |
+
+---
+
+## 🎙️ Muse Radio — Related Tracks Engine
+
+Questa sezione descrive il sistema di raccomandazione musicale di Muse, ispirato al comportamento esterno della Spotify Radio.
+
+### Come funziona Spotify Radio
+
+Spotify distingue la **Spotify Radio** dalla normale **riproduzione automatica**:
+
+- **Radio**: avviata da un brano, genera una raccolta continuamente aggiornata.
+- **Autoplay**: entra in gioco al termine di una selezione, continuando con brani simili.
+
+Spotify utilizza sistemi di **nearest-neighbor search** per trovare elementi simili tra brani, artisti e album. Gli algoritmi considerano:
+- Attributi audio dei brani
+- Relazioni tra brani (co-ascolto)
+- Segnali del comportamento degli ascoltatori (skip, like, salvataggi)
+
+### Architettura del sistema a 3 livelli
+
+#### Livello 1 — Similarità audio
+
+Ogni brano ha un **vettore di caratteristiche**:
+
+```
+Riders on the Storm
+  genre:        rock = 0.90 | psychedelic = 0.82 | blues = 0.54
+  energy:       0.32
+  danceability: 0.41
+  valence:      0.38
+  tempo:        104 BPM
+  acousticness: 0.28
+  era:          1971
+```
+
+I brani vengono confrontati tramite **cosine similarity**:
+
+```
+similarity(A, B) = cosine_similarity(vectorA, vectorB)
+```
+
+Esempio di risultato:
+
+```
+Riders on the Storm
+  └─ The End              94%
+  └─ Light My Fire        91%
+  └─ People Are Strange   88%
+  └─ Nights in White Satin 79%
+  └─ White Room           76%
+```
+
+#### Livello 2 — Collaborative Filtering
+
+Il sistema osserva i pattern di co-ascolto degli utenti:
+
+> "Gli utenti che ascoltano A spesso ascoltano B."
+
+```
+Riders on the Storm
+  ├── The End             0.91
+  ├── Nights in White Satin 0.83
+  ├── Light My Fire       0.81
+  └── White Room          0.63
+```
+
+Non è necessario sapere *perché* i brani sono correlati — è sufficiente osservare la correlazione comportamentale.
+
+#### Livello 3 — Profilo personale (Taste Profile)
+
+Muse costruisce un profilo utente dinamico basato sulla cronologia di ascolto:
+
+```json
+{
+  "generi":  { "rock": 0.91, "alternative": 0.72, "blues": 0.65, "electronic": 0.43 },
+  "artisti": { "doors": 0.94, "pink_floyd": 0.88, "queen": 0.74, "depeche_mode": 0.69 }
+}
+```
+
+### Flusso del candidato → brano successivo
+
+```
+BRANO CORRENTE
+      │
+      ▼
+┌─────────────────┐
+│ Candidate Engine │
+└────────┬────────┘
+         │
+   ┌─────┴──────┬───────────┐
+   ▼            ▼           ▼
+Similarità   Co-ascolto  Profilo
+  audio       utenti     personale
+   │            │           │
+   └─────┬──────┴───────────┘
+         ▼
+   100–500 candidati
+         │
+         ▼
+  FILTRO DUPLICATI
+         │
+         ▼
+  RANKING ENGINE
+         │
+   ┌─────┴──────┬──────────┐
+   ▼            ▼          ▼
+ qualità     interesse  diversità
+   │            │          │
+   └─────┬──────┴──────────┘
+         ▼
+      TOP 20–50
+         │
+         ▼
+    NEXT TRACK
+```
+
+### Evoluzione della sessione
+
+Il sistema non genera una lista fissa, ma aggiorna dinamicamente la coda in base agli ascolti correnti.
+
+**Esempio — inizio sessione:**
+```
+🎵 Riders on the Storm →  1. The End
+                           2. Light My Fire
+                           3. People Are Strange
+                           4. White Room
+                           5. Echoes
+```
+
+**Dopo aver ascoltato** `The End` → `Echoes`, il sistema rileva interesse per il rock psichedelico/progressivo:
+```
+🎵 Echoes →  1. Shine On You Crazy Diamond
+             2. Us and Them
+             3. The End
+             4. No Quarter
+```
+
+La coda viene rigenerata ogni 2–3 brani, mai all'inizio in blocco:
+
+```
+Coda dinamica:
+  [1] The End         ← in riproduzione
+  [2] Light My Fire
+  [3] Echoes
+  [4] White Room
+  [5] No Quarter
+  ...
+  [3] → Muse genera 10–20 nuovi candidati e aggiorna [4..N]
+```
+
+### Segnali raccolti e pesi
+
+| Evento | Peso indicativo |
+|--------|----------------|
+| Play | +1 |
+| Ascolto > 30 sec | +2 |
+| Ascolto > 50% | +3 |
+| Ascolto completo | +4 |
+| Replay | +5 |
+| Like / Preferito | +8 |
+| Aggiunto a playlist | +7 |
+| Skip < 10 sec | −5 |
+| Skip < 30 sec | −3 |
+| Dislike | −10 |
+| Ricerca del brano | +1 |
+
+> I pesi sono indicativi e calibrabili; non replicano i valori interni di Spotify.
+
+### Scoring multi-sorgente con contesto
+
+```
+CORRELATI
+      │
+  ┌───┴────────┬────────────┐
+  ▼            ▼            ▼
+AUDIO       COMMUNITY    PERSONALE
+similarity  co-listening  taste
+  │            │            │
+  └───┬────────┴────────────┘
+      ▼
+CONTEXT SCORE
+  (ora del giorno, mood della sessione)
+      ▼
+NEXT SONG
+```
+
+**Contesto temporale (esempio):**
+
+| Fascia oraria | Caratteristica consigliata |
+|---------------|---------------------------|
+| 06:00 – 09:00 | Musica tranquilla / acustica |
+| 12:00 – 16:00 | Musica energica |
+| 21:00 – 00:00 | Musica rilassante |
+
+### ✅ Stato dell'Implementazione (Muse Radio Engine v1)
+
+L'algoritmo descritto è stato **completamente implementato** nell'app (vedi `PlayerManager.kt` e `MusicRepository.kt`):
+
+1. **Coda Dinamica Evolutiva (`generateRadioQueue`)**: La radio non genera una lista statica all'inizio. Quando la coda scende a ≤3 brani rimanenti, viene effettuato un *refill* asincrono interrogando le API partendo dall'**ultimo brano ascoltato in modo sostanziale** (il *Seed*), non dal brano originale. Questo permette alla radio di "seguire" i cambi di genere dell'utente.
+2. **Tracciamento Segnali (`recordListenSignal`)**: Ogni azione dell'utente (skip veloce <10s, skip lungo <30s, ascolto >30s, ascolto >50%, ascolto completo, replay) viene catturata dal player e tradotta in una variazione di punteggio (`playCount`) salvata nel database locale Room (`HistoryEntity`).
+3. **Taste Profile & Sessione Corrente**: Il sistema tiene traccia degli artisti ascoltati nella sessione corrente (`sessionArtists`). Durante il ranking dei nuovi candidati forniti dal motore collaborativo globale (le API di YouTube Music), l'algoritmo riordina i brani privilegiando quelli con un alto punteggio storico locale e applica un **bonus matematico (+3)** agli artisti già presenti nella sessione, creando un'esperienza fluida e contestuale.

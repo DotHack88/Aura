@@ -211,6 +211,29 @@ class MusicRepository(
         }
     }
 
+    /**
+     * Aggiusta il punteggio locale di un brano modificando il suo playCount nella history.
+     * Usato dal Muse Radio Engine per registrare segnali di ascolto (skip, completamento, ecc.).
+     * Il playCount viene usato come proxy di gradimento per il ranking dei candidati radio.
+     *
+     * @param trackId ID del brano da aggiornare
+     * @param delta   Variazione positiva o negativa del punteggio
+     */
+    suspend fun adjustTrackScore(trackId: String, delta: Int) {
+        val existing = historyDao.getHistoryEntry(trackId) ?: return
+        val newCount = (existing.playCount + delta).coerceAtLeast(0)
+        historyDao.upsertHistory(existing.copy(playCount = newCount))
+    }
+
+    /**
+     * Recupera il playCount locale di un brano (usato per il ranking dei candidati radio).
+     * Ritorna 0 se il brano non è ancora nella history.
+     */
+    suspend fun getTrackScore(trackId: String): Int {
+        return historyDao.getHistoryEntry(trackId)?.playCount ?: 0
+    }
+
+
     suspend fun searchTracks(query: String): List<Track> {
         val ytmResult = youtubeMusicService.searchMusic(query)
         if (ytmResult.allTracks.isNotEmpty()) {
