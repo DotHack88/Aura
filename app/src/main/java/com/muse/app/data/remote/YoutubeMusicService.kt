@@ -6,8 +6,10 @@ import com.google.gson.JsonObject
 import com.muse.app.domain.model.Album
 import com.muse.app.domain.model.Artist
 import com.muse.app.domain.model.ArtistDetails
+import com.muse.app.domain.model.Chip
 import com.muse.app.domain.model.SearchResult
 import com.muse.app.domain.model.Track
+import com.muse.app.domain.model.UpNextResult
 import com.muse.app.utils.toHighResThumbnail
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -1036,6 +1038,214 @@ class YoutubeMusicService(
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
+        }
+    }
+
+    suspend fun getUpNext(videoId: String, params: String? = null): UpNextResult = withContext(Dispatchers.IO) {
+        android.util.Log.d("MuseChips", "getUpNext CHIAMATO per videoId=$videoId, params=$params")
+        try {
+            val payloadObj = JsonObject()
+            payloadObj.addProperty("videoId", videoId)
+            // playlistId RDAMVM{videoId} attiva il chip cloud di YouTube Music
+            payloadObj.addProperty("playlistId", "RDAMVM$videoId")
+            if (params != null) {
+                payloadObj.addProperty("params", params)
+            }
+            val payload = payloadObj.toString()
+            // Rimuoviamo le parentesi graffe più esterne perché buildInnertubeRequest le aggiunge già
+            val innerPayload = payload.substring(1, payload.length - 1)
+            
+            val request = buildInnertubeRequest("next", innerPayload)
+            val response = client.newCall(request).execute()
+            val rawJson = response.body?.string().orEmpty()
+            android.util.Log.d("MuseChips", "Risposta API: ${rawJson.length} chars")
+            if (rawJson.isBlank()) return@withContext UpNextResult()
+
+            val root = gson.fromJson(rawJson, JsonObject::class.java)
+
+            val contentsObj = root.getAsJsonObject("contents")
+
+            val musicQueueRenderer = contentsObj
+                ?.getAsJsonObject("singleColumnMusicWatchNextResultsRenderer")
+                ?.getAsJsonObject("tabbedRenderer")
+                ?.getAsJsonObject("watchNextTabbedResultsRenderer")
+                ?.getAsJsonArray("tabs")?.get(0)?.asJsonObject
+                ?.getAsJsonObject("tabRenderer")
+                ?.getAsJsonObject("content")
+                ?.getAsJsonObject("musicQueueRenderer")
+
+            android.util.Log.d("MuseChips", "musicQueueRenderer trovato: ${musicQueueRenderer != null}")
+            if (musicQueueRenderer != null) {
+                android.util.Log.d("MuseChips", "musicQueueRenderer keys: ${musicQueueRenderer.keySet()}")
+                // Log header content per trovare i chip
+                val headerContent = musicQueueRenderer.get("header")
+                android.util.Log.d("MuseChips", "header content (primi 500 chars): ${headerContent.toString().take(500)}")
+            }
+
+            if (musicQueueRenderer == null) return@withContext UpNextResult()
+
+
+            val tracks = mutableListOf<Track>()
+            val chips = mutableListOf<Chip>()
+
+            // Estrai i brani
+            val panelContents = musicQueueRenderer
+                .getAsJsonObject("content")
+                ?.getAsJsonObject("playlistPanelRenderer")
+                ?.getAsJsonArray("contents")
+
+            panelContents?.forEach { item ->
+                val renderer = item.asJsonObject.getAsJsonObject("playlistPanelVideoRenderer") ?: return@forEach
+                val vId = renderer.get("videoId")?.asString ?: return@forEach
+
+                val title = renderer.getAsJsonObject("title")
+                    ?.getAsJsonArray("runs")
+                    ?.get(0)?.asJsonObject
+                    ?.get("text")?.asString ?: ""
+
+                val longBylineTextRuns = renderer.getAsJsonObject("longBylineText")?.getAsJsonArray("runs")
+                val artistNames = mutableListOf<String>()
+                var albumName: String? = null
+                var artistId: String? = null
+
+                longBylineTextRuns?.forEach { run ->
+                    val text = run.asJsonObject.get("text")?.asString.orEmpty().trim()
+                    val navEp = run.asJsonObject.getAsJsonObject("navigationEndpoint")
+                    val bId = navEp?.getAsJsonObject("browseEndpoint")?.get("browseId")?.asString
+                    val pageType = navEp?.getAsJsonObject("browseEndpoint")
+                        ?.getAsJsonObject("browseEndpointContextSupportedConfigs")
+                        ?.getAsJsonObject("browseEndpointContextMusicConfig")
+                        ?.get("pageType")?.asString
+
+                    if (text.isNotEmpty() && text != "•" && text != "·") {
+                        if (pageType == "MUSIC_PAGE_TYPE_ALBUM") {
+                            albumName = text
+                        } else if (pageType == "MUSIC_PAGE_TYPE_ARTIST" || pageType == "MUSIC_PAGE_TYPE_USER_CHANNEL" || (pageType == null && !text.contains("visualizzazioni"))) {
+                            artistNames.add(text)
+                            if (artistId == null && bId != null) {
+                                artistId = bId
+                            }
+                        }
+                    }
+                }
+
+                val durationText = renderer.getAsJsonObject("lengthText")
+                    ?.getAsJsonArray("runs")
+                    ?.get(0)?.asJsonObject
+                    ?.get("text")?.asString ?: "3:00"
+
+                val durationParts = durationText.split(":")
+                val durationMs = if (durationParts.size == 2) {
+                    (durationParts[0].toLongOrNull() ?: 3) * 60_000 + (durationParts[1].toLongOrNull() ?: 0) * 1_000
+                } else if (durationParts.size == 3) {
+                    (durationParts[0].toLongOrNull() ?: 0) * 3600_000 + (durationParts[1].toLongOrNull() ?: 3) * 60_000 + (durationParts[2].toLongOrNull() ?: 0) * 1_000
+                } else {
+                    180_000L
+                }
+
+                val thumb = renderer.getAsJsonObject("thumbnail")
+                    ?.getAsJsonArray("thumbnails")
+                    ?.lastOrNull()?.asJsonObject
+                    ?.get("url")?.asString.orEmpty().toHighResThumbnail()
+
+                if (title.isNotEmpty()) {
+                    tracks.add(
+                        Track(
+                            id = vId,
+                            title = title,
+                            artist = if (artistNames.isNotEmpty()) artistNames.joinToString(", ") else "Unknown",
+                            artistId = artistId,
+                            thumbnailUrl = thumb,
+                            durationMs = durationMs,
+                            album = albumName
+                        )
+                    )
+                }
+            }
+
+            // Estrai i chip — prova più percorsi JSON perché la struttura può variare
+            var chipCloudArray = musicQueueRenderer
+                .getAsJsonObject("subHeaderChipCloud")
+                ?.getAsJsonObject("chipCloudRenderer")
+                ?.getAsJsonArray("chips")
+
+            // Percorso alternativo: header -> chipCloudRenderer
+            if (chipCloudArray == null) {
+                chipCloudArray = musicQueueRenderer
+                    .getAsJsonObject("header")
+                    ?.getAsJsonObject("chipCloudRenderer")
+                    ?.getAsJsonArray("chips")
+            }
+
+            // Percorso alternativo: cerca ricorsivamente chipCloudRenderer
+            if (chipCloudArray == null) {
+                chipCloudArray = findChipCloudRecursive(musicQueueRenderer)
+            }
+
+            android.util.Log.d("MuseChips", "musicQueueRenderer keys: ${musicQueueRenderer.keySet()}")
+            android.util.Log.d("MuseChips", "chipCloud trovato: ${chipCloudArray != null}, size: ${chipCloudArray?.size()}")
+
+            chipCloudArray?.forEach { chipObj ->
+                val chipRenderer = chipObj.asJsonObject.getAsJsonObject("chipCloudChipRenderer")
+                if (chipRenderer != null) {
+                    val text = chipRenderer.getAsJsonObject("text")
+                        ?.getAsJsonArray("runs")
+                        ?.get(0)?.asJsonObject
+                        ?.get("text")?.asString ?: ""
+
+                    val isSelected = chipRenderer.get("isSelected")?.asBoolean ?: false
+
+                    val navEndpoint = chipRenderer.getAsJsonObject("navigationEndpoint")
+                    val endpointParams = navEndpoint
+                        ?.getAsJsonObject("watchEndpoint")
+                        ?.get("params")?.asString
+                        ?: navEndpoint
+                            ?.getAsJsonObject("queueUpdateCommand")
+                            ?.getAsJsonObject("fetchParams")
+                            ?.get("queueUpdateParams")?.asString
+                        ?: navEndpoint?.get("params")?.asString
+
+                    android.util.Log.d("MuseChips", "Chip: '$text', selected: $isSelected, params: $endpointParams")
+
+                    if (text.isNotEmpty()) {
+                        chips.add(Chip(title = text, endpointParams = endpointParams, isSelected = isSelected))
+                    }
+                }
+            }
+
+            UpNextResult(tracks = tracks, chips = chips)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            UpNextResult()
+        }
+    }
+
+    /**
+     * Cerca ricorsivamente un array "chips" dentro un chipCloudRenderer nel JSON.
+     */
+    private fun findChipCloudRecursive(element: com.google.gson.JsonElement?, depth: Int = 0): com.google.gson.JsonArray? {
+        if (element == null || depth > 10) return null
+        return when {
+            element.isJsonObject -> {
+                val obj = element.asJsonObject
+                if (obj.has("chipCloudRenderer")) {
+                    val chips = obj.getAsJsonObject("chipCloudRenderer")?.getAsJsonArray("chips")
+                    if (chips != null && chips.size() > 0) return chips
+                }
+                for ((_, value) in obj.entrySet()) {
+                    val result = findChipCloudRecursive(value, depth + 1)
+                    if (result != null) return result
+                }
+                null
+            }
+            element.isJsonArray -> {
+                for (item in element.asJsonArray) {
+                    val result = findChipCloudRecursive(item, depth + 1)
+                    if (result != null) return result
+                }
+                null
+            }
+            else -> null
         }
     }
 }

@@ -211,6 +211,10 @@ class MusicRepository(
         }
     }
 
+    suspend fun getUpNext(videoId: String, params: String? = null): com.muse.app.domain.model.UpNextResult {
+        return youtubeMusicService.getUpNext(videoId, params)
+    }
+
     /**
      * Aggiusta il punteggio locale di un brano modificando il suo playCount nella history.
      * Usato dal Muse Radio Engine per registrare segnali di ascolto (skip, completamento, ecc.).

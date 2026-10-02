@@ -6,12 +6,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +26,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.muse.app.domain.model.Track
 import com.muse.app.player.PlayerManager
@@ -36,57 +40,135 @@ fun QueueBottomSheet(
     val state by playerManager.playerState.collectAsState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
+    val currentTrack = state.currentTrack
+    val upcomingTracks = if (state.currentIndex >= 0 && state.currentIndex < state.playlist.size) {
+        state.playlist.subList(state.currentIndex + 1, state.playlist.size)
+    } else emptyList()
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 16.dp)
+                .padding(bottom = 24.dp)
         ) {
-            Text(
-                text = "In coda",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+            // ── Sezione "In riproduzione" ──
+            if (currentTrack != null) {
+                item {
+                    Text(
+                        text = "In riproduzione",
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.5.sp
+                        ),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+                item {
+                    CurrentTrackRow(track = currentTrack)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(thickness = 0.5.dp)
+                }
+            }
 
-            HorizontalDivider(modifier = Modifier.padding(bottom = 8.dp))
+            // ── Sezione "A seguire" con chip ──
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "A seguire",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (upcomingTracks.isNotEmpty()) {
+                        Text(
+                            text = "${upcomingTracks.size} brani",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
 
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            // Chip filtri (stile YouTube Music)
+            if (state.upNextChips.isNotEmpty()) {
+                item {
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(state.upNextChips, key = { it.title }) { chip ->
+                            val isSelected = chip.isSelected ||
+                                chip.title == state.selectedChip ||
+                                (state.selectedChip == null && chip.title == "Tutto")
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { playerManager.selectChip(chip) },
+                                label = { Text(text = chip.title, style = MaterialTheme.typography.labelMedium) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                ),
+                                border = null,
+                                shape = CircleShape
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Lista brani A seguire
+            if (upcomingTracks.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Nessun brano in coda",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
                 itemsIndexed(
-                    items = state.playlist,
-                    key = { index, track -> "${track.id}_$index" }
-                ) { index, track ->
-                    val isCurrent = index == state.currentIndex
-                    val isPast = index < state.currentIndex
-
+                    items = upcomingTracks,
+                    key = { index, track -> "${track.id}_upcoming_$index" }
+                ) { relIndex, track ->
+                    val absoluteIndex = state.currentIndex + 1 + relIndex
                     val dismissState = rememberSwipeToDismissBoxState(
                         confirmValueChange = { dismissValue ->
-                            if (dismissValue == SwipeToDismissBoxValue.EndToStart || dismissValue == SwipeToDismissBoxValue.StartToEnd) {
-                                if (!isCurrent) {
-                                    playerManager.removeTrack(index)
-                                    true
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            }
+                            if (dismissValue != SwipeToDismissBoxValue.Settled) {
+                                playerManager.removeTrack(absoluteIndex)
+                                true
+                            } else false
                         }
                     )
 
                     SwipeToDismissBox(
                         state = dismissState,
-                        enableDismissFromStartToEnd = !isCurrent,
-                        enableDismissFromEndToStart = !isCurrent,
+                        enableDismissFromStartToEnd = true,
+                        enableDismissFromEndToStart = true,
                         backgroundContent = {
                             val color by animateColorAsState(
-                                targetValue = if (dismissState.targetValue != SwipeToDismissBoxValue.Settled) MaterialTheme.colorScheme.errorContainer else Color.Transparent,
+                                targetValue = if (dismissState.targetValue != SwipeToDismissBoxValue.Settled)
+                                    MaterialTheme.colorScheme.errorContainer else Color.Transparent,
                                 label = "dismissColor"
                             )
                             Box(
@@ -106,17 +188,9 @@ fun QueueBottomSheet(
                             }
                         }
                     ) {
-                        QueueItem(
+                        UpcomingTrackRow(
                             track = track,
-                            isCurrent = isCurrent,
-                            isPast = isPast,
-                            onMoveUp = if (index > 0) { { playerManager.moveTrack(index, index - 1) } } else null,
-                            onMoveDown = if (index < state.playlist.size - 1) { { playerManager.moveTrack(index, index + 1) } } else null,
-                            onClick = {
-                                if (!isCurrent) {
-                                    playerManager.playTrack(track, state.playlist)
-                                }
-                            }
+                            onClick = { playerManager.playTrack(track, state.playlist) }
                         )
                     }
                 }
@@ -126,25 +200,72 @@ fun QueueBottomSheet(
 }
 
 @Composable
-private fun QueueItem(
-    track: Track,
-    isCurrent: Boolean,
-    isPast: Boolean,
-    onMoveUp: (() -> Unit)?,
-    onMoveDown: (() -> Unit)?,
-    onClick: () -> Unit
-) {
-    val alpha = if (isPast) 0.5f else 1f
-    val elevation by animateDpAsState(if (isCurrent) 4.dp else 0.dp, label = "elevation")
-    val backgroundColor = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-
+private fun CurrentTrackRow(track: Track) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(elevation)
-            .background(backgroundColor)
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box {
+            AsyncImage(
+                model = track.thumbnailUrl,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Crop
+            )
+            // Indicatore di riproduzione
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = track.title,
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = track.artist,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun UpcomingTrackRow(
+    track: Track,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         AsyncImage(
@@ -158,57 +279,27 @@ private fun QueueItem(
 
         Spacer(modifier = Modifier.width(16.dp))
 
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-                ),
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha)
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = track.artist,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
-        if (!isCurrent) {
-            Column(
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                if (onMoveUp != null) {
-                    IconButton(
-                        onClick = onMoveUp,
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowUpward,
-                            contentDescription = "Sposta su",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                if (onMoveDown != null) {
-                    IconButton(
-                        onClick = onMoveDown,
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowDownward,
-                            contentDescription = "Sposta giù",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
+        Icon(
+            imageVector = Icons.Default.DragHandle,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.padding(start = 8.dp)
+        )
     }
 }

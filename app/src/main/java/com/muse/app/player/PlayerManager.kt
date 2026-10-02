@@ -149,14 +149,23 @@ class PlayerManager(
      * escludendo i brani già presenti in coda. I candidati vengono ordinati per playCount locale
      * (proxy di gradimento) con un bonus per gli artisti già ascoltati nella sessione.
      */
-    private fun generateRadioQueue(seedId: String, currentPlaylist: List<Track>) {
+    private fun generateRadioQueue(seedId: String, currentPlaylist: List<Track>, params: String? = null) {
         if (isRadioRefilling) return
         isRadioRefilling = true
         radioRefillJob?.cancel()
         radioRefillJob = scope.launch {
             try {
                 Log.d("MuseRadio", "Refill coda da seme: $seedId (sessione artisti: $sessionArtists)")
-                val candidates = musicRepository.getRelatedTracks(seedId)
+                val upNext = musicRepository.getUpNext(seedId, params)
+                val candidates = upNext.tracks
+                
+                withContext(Dispatchers.Main) {
+                    _playerState.update { it.copy(
+                        upNextChips = upNext.chips,
+                        selectedChip = upNext.chips.find { c -> c.isSelected }?.title
+                    ) }
+                }
+                
                 val existingIds = currentPlaylist.map { it.id }.toSet()
 
                 // Recupera i punteggi dalla history locale per il ranking
@@ -201,8 +210,25 @@ class PlayerManager(
         Log.d("MuseRadio", "Brani rimanenti in coda: $tracksAhead")
         if (tracksAhead <= 3) {
             val seed = radioSeedTrackId ?: state.currentTrack?.id ?: return
-            generateRadioQueue(seed, state.playlist)
+            val currentChipParams = state.upNextChips.find { it.title == state.selectedChip }?.endpointParams
+            generateRadioQueue(seed, state.playlist, currentChipParams)
         }
+    }
+
+    /**
+     * Applica un filtro (Chip) e ricarica i brani successivi nella coda in base ad esso.
+     */
+    fun selectChip(chip: com.muse.app.domain.model.Chip) {
+        val state = _playerState.value
+        val seed = radioSeedTrackId ?: state.currentTrack?.id ?: return
+        
+        // Manteniamo solo la coda fino al brano corrente
+        val newPlaylist = state.playlist.take(state.currentIndex + 1)
+        _playerState.update { it.copy(playlist = newPlaylist, selectedChip = chip.title) }
+        
+        // Forziamo il caricamento dei nuovi brani filtrati
+        isRadioRefilling = false
+        generateRadioQueue(seed, newPlaylist, chip.endpointParams)
     }
 
     // ─── Audio Focus ─────────────────────────────────────────────────────────

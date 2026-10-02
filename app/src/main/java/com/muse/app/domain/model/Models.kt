@@ -45,6 +45,17 @@ data class SearchResult(
     val playlists: List<Playlist> = emptyList()
 )
 
+data class Chip(
+    val title: String,
+    val endpointParams: String? = null,
+    val isSelected: Boolean = false
+)
+
+data class UpNextResult(
+    val tracks: List<Track> = emptyList(),
+    val chips: List<Chip> = emptyList()
+)
+
 data class Album(
     val id: String,
     val title: String,
@@ -105,6 +116,8 @@ data class PlayerState(
     val currentIndex: Int = -1,
     val errorMessage: String? = null,
     val sleepTimerRemainingMs: Long = 0L, // 0 = timer disattivo
-    val crossfadeDurationMs: Long = 0L // 0 = crossfade disattivo
+    val crossfadeDurationMs: Long = 0L, // 0 = crossfade disattivo
+    val upNextChips: List<Chip> = emptyList(), // I chip "A SEGUIRE" da YT Music
+    val selectedChip: String? = null // Titolo del chip selezionato
 )
 

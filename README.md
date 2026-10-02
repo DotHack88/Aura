@@ -1,8 +1,8 @@
 # Aura 🎵 — Native Android Music Player
 
-![Version](https://img.shields.io/badge/versione-1.0.15-blueviolet?style=flat-square)
+![Version](https://img.shields.io/badge/versione-1.0.16-blueviolet?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Android%208.0%2B-green?style=flat-square)
-![Build](https://img.shields.io/badge/build-debug-orange?style=flat-square)
+![Build](https://img.shields.io/badge/build-release-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
 **Aura** è un'applicazione musicale nativa per Android, progettata con un'interfaccia minimale, scura, elegante e focalizzata sull'ascolto immersivo. Utilizza **YouTube IFrame Player API** (conforme alle ToS ufficiali di YouTube), **YouTube Data API v3**, **Jetpack Compose + Material 3**, testi sincronizzati in tempo reale in stile Karaoke/Spotify, e sincronizzazione multi-device tramite **Firebase**.
@@ -15,8 +15,8 @@
 
 | # | Versione | Tipo | File | Note |
 |---|----------|------|------|------|
-| 1 | 1.0.15 | 🐛 Debug | [`app-debug.apk`](app/build/outputs/apk/debug/app-debug.apk) | Test/sviluppo, debugger USB |
-| 2 | 1.0.15 | 🚀 Release | [`Aura-1.0.15-release.apk`](app/build/outputs/apk/release/Aura-1.0.15-release.apk) | Ottimizzato R8, ~30-50% più piccolo |
+| 1 | 1.0.16 | 🐛 Debug | [`app-debug.apk`](app/build/outputs/apk/debug/app-debug.apk) | Test/sviluppo, debugger USB |
+| 2 | 1.0.16 | 🚀 Release | [`Aura-1.0.16-release.apk`](app/build/outputs/apk/release/Aura-1.0.16-release.apk) | Ottimizzato R8, ~30-50% più piccolo |
 
 ### ⚠️ Tipo di build: Debug vs Release
 
@@ -97,6 +97,7 @@
 
 | Versione | Note |
 |----------|------|
+| **1.0.16** | 🎛️ Chip Filter «A seguire»: filtri mood/genere nella coda radio (Familiare, R&B, Relax, Anni '90…), coda ridisegnata stile YouTube Music con sezione «In riproduzione» + «A seguire», playlistId RDAMVM per attivare il chip cloud |
 | **1.0.15** | ✨ Muse Radio Engine v1: coda dinamica intelligente, ranking dei preferiti, supporto profili di sessione |
 | **1.0.14** | Testo orizzontale, fix disconnessione, radio statica iniziale |
 | **1.0.12** | Build precedente — debug |
@@ -302,3 +303,4 @@ L'algoritmo descritto è stato **completamente implementato** nell'app (vedi `Pl
 1. **Coda Dinamica Evolutiva (`generateRadioQueue`)**: La radio non genera una lista statica all'inizio. Quando la coda scende a ≤3 brani rimanenti, viene effettuato un *refill* asincrono interrogando le API partendo dall'**ultimo brano ascoltato in modo sostanziale** (il *Seed*), non dal brano originale. Questo permette alla radio di "seguire" i cambi di genere dell'utente.
 2. **Tracciamento Segnali (`recordListenSignal`)**: Ogni azione dell'utente (skip veloce <10s, skip lungo <30s, ascolto >30s, ascolto >50%, ascolto completo, replay) viene catturata dal player e tradotta in una variazione di punteggio (`playCount`) salvata nel database locale Room (`HistoryEntity`).
 3. **Taste Profile & Sessione Corrente**: Il sistema tiene traccia degli artisti ascoltati nella sessione corrente (`sessionArtists`). Durante il ranking dei nuovi candidati forniti dal motore collaborativo globale (le API di YouTube Music), l'algoritmo riordina i brani privilegiando quelli con un alto punteggio storico locale e applica un **bonus matematico (+3)** agli artisti già presenti nella sessione, creando un'esperienza fluida e contestuale.
+4. **Chip Filter «A seguire» (`selectChip`)**: Il pannello coda mostra i filtri mood/genere forniti direttamente da YouTube Music (es. *Familiare*, *R&B*, *Relax*, *Anni '90*, *Ritmata*, *Romantica*…). Selezionando un chip, la radio ricarica istantaneamente la coda con brani coerenti con il filtro scelto, usando il `playlistId` `RDAMVM{videoId}` per attivare il chip cloud nell'API Innertube.
