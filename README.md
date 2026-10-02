@@ -1,6 +1,6 @@
 # Aura 🎵 — Native Android Music Player
 
-![Version](https://img.shields.io/badge/versione-1.0.14-blueviolet?style=flat-square)
+![Version](https://img.shields.io/badge/versione-1.0.15-blueviolet?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Android%208.0%2B-green?style=flat-square)
 ![Build](https://img.shields.io/badge/build-debug-orange?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
@@ -15,8 +15,8 @@
 
 | # | Versione | Tipo | File | Note |
 |---|----------|------|------|------|
-| 1 | 1.0.14 | 🐛 Debug | [`app-debug.apk`](app/build/outputs/apk/debug/app-debug.apk) | Test/sviluppo, debugger USB |
-| 2 | 1.0.14 | 🚀 Release | [`Aura-1.0.14-release.apk`](app/build/outputs/apk/release/Aura-1.0.14-release.apk) | Ottimizzato R8, ~30-50% più piccolo |
+| 1 | 1.0.15 | 🐛 Debug | [`app-debug.apk`](app/build/outputs/apk/debug/app-debug.apk) | Test/sviluppo, debugger USB |
+| 2 | 1.0.15 | 🚀 Release | [`Aura-1.0.15-release.apk`](app/build/outputs/apk/release/Aura-1.0.15-release.apk) | Ottimizzato R8, ~30-50% più piccolo |
 
 ### ⚠️ Tipo di build: Debug vs Release
 
@@ -97,7 +97,8 @@
 
 | Versione | Note |
 |----------|------|
-| **1.0.14** | Testo orizzontale, fix disconnessione, radio automatica |
+| **1.0.15** | ✨ Muse Radio Engine v1: coda dinamica intelligente, ranking dei preferiti, supporto profili di sessione |
+| **1.0.14** | Testo orizzontale, fix disconnessione, radio statica iniziale |
 | **1.0.12** | Build precedente — debug |
 
 ---
