@@ -11,6 +11,7 @@ import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import com.muse.app.cast.CastManager
 import com.muse.app.data.local.AppDatabase
+import com.muse.app.data.local.MIGRATION_7_8
 import com.muse.app.data.local.download.OfflineManager
 import com.muse.app.data.remote.FirestoreSyncService
 import com.muse.app.data.remote.YoutubeApiService
@@ -113,7 +114,7 @@ class MuseApplication : Application(), coil.ImageLoaderFactory {
             applicationContext,
             AppDatabase::class.java,
             "muse_music.db"
-        ).addMigrations(MIGRATION_5_6, MIGRATION_6_7)
+        ).addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
          .fallbackToDestructiveMigration().build()
 
         // OkHttpClient & Retrofit for YouTube Data API
@@ -154,6 +155,7 @@ class MuseApplication : Application(), coil.ImageLoaderFactory {
             historyDao = database.historyDao(),
             playlistDao = database.playlistDao(),
             followedArtistDao = database.followedArtistDao(),
+            searchCacheDao = database.searchCacheDao(),
             syncService = syncService,
             offlineManager = offlineManager
         )

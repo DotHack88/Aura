@@ -13,7 +13,13 @@ local.properties
 *.txt
 *.py
 *.json
+!app/google-services.json
 *.ps1
 window_dump.xml
 *.md
 !README.md
+
+# Credenziali e chiavi — NON committare mai questi file
+google-services.json
+*.jks
+*.keystore

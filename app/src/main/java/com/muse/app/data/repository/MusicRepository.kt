@@ -14,9 +14,15 @@ import com.muse.app.domain.model.SearchResult
 import com.muse.app.domain.model.Track
 import com.muse.app.player.NewPipeStreamExtractor
 import com.muse.app.utils.toHighResThumbnail
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.time.Duration
 import java.util.UUID
 
@@ -27,9 +33,26 @@ class MusicRepository(
     private val historyDao: HistoryDao,
     private val playlistDao: PlaylistDao,
     private val followedArtistDao: FollowedArtistDao,
+    private val searchCacheDao: SearchCacheDao,
     private val syncService: FirestoreSyncService,
     val offlineManager: OfflineManager? = null
 ) {
+
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    companion object {
+        /** TTL della cache ricerche: 7 giorni in millisecondi. */
+        private const val SEARCH_CACHE_TTL_MS = 7L * 24 * 60 * 60 * 1000
+    }
+
+    init {
+        // Pulizia asincrona delle entry scadute all'avvio del repository
+        repositoryScope.launch {
+            try {
+                searchCacheDao.evictExpired(System.currentTimeMillis() - SEARCH_CACHE_TTL_MS)
+            } catch (_: Exception) {}
+        }
+    }
 
     // ── Artisti seguiti ──────────────────────────────────────────────────────────
 
@@ -239,10 +262,27 @@ class MusicRepository(
 
 
     suspend fun searchTracks(query: String): List<Track> {
+        val normalizedQuery = query.trim().lowercase()
+
+        // 1. Controlla la cache Room (TTL 7 giorni)
+        val cached = searchCacheDao.get(normalizedQuery)
+        if (cached != null && System.currentTimeMillis() - cached.cachedAt < SEARCH_CACHE_TTL_MS) {
+            return deserializeTracksFromCache(cached.tracksJson)
+        }
+
+        // 2. Fonte primaria: YouTube Music InnerTube
         val ytmResult = youtubeMusicService.searchMusic(query)
         if (ytmResult.allTracks.isNotEmpty()) {
+            searchCacheDao.put(
+                SearchCacheEntity(
+                    query = normalizedQuery,
+                    tracksJson = serializeTracksToCache(ytmResult.allTracks)
+                )
+            )
             return ytmResult.allTracks
         }
+
+        // 3. Fallback: YouTube Data API (consuma quota — usato raramente)
         return try {
             val response = youtubeApi.searchVideos(
                 query = query,
@@ -251,7 +291,7 @@ class MusicRepository(
             val items = response.items.orEmpty().filter { it.id?.videoId != null }
             val videoIds = items.mapNotNull { it.id?.videoId }.joinToString(",")
 
-            // Dettagli durata e statistiche visualizzazioni
+            // Dettagli durata e statistiche visualizzazioni (videos.list = 1 unità, non 100)
             val detailsMap = try {
                 if (videoIds.isNotEmpty()) {
                     val details = youtubeApi.getVideoDetails(
@@ -275,7 +315,7 @@ class MusicRepository(
                 emptyMap()
             }
 
-            items.map { item ->
+            val tracks = items.map { item ->
                 val vId = item.id?.videoId ?: ""
                 val snippet = item.snippet
                 val title = snippet?.title
@@ -285,8 +325,8 @@ class MusicRepository(
                     ?.replace("&lt;", "<")
                     ?.replace("&gt;", ">").orEmpty()
                 val artist = snippet?.channelTitle.orEmpty()
-                val thumb = snippet?.thumbnails?.high?.url 
-                    ?: snippet?.thumbnails?.medium?.url 
+                val thumb = snippet?.thumbnails?.high?.url
+                    ?: snippet?.thumbnails?.medium?.url
                     ?: snippet?.thumbnails?.default?.url
                     ?: "https://i.ytimg.com/vi/$vId/hqdefault.jpg"
 
@@ -301,7 +341,65 @@ class MusicRepository(
                     viewsText = info?.second
                 )
             }
+
+            if (tracks.isNotEmpty()) {
+                searchCacheDao.put(
+                    SearchCacheEntity(
+                        query = normalizedQuery,
+                        tracksJson = serializeTracksToCache(tracks)
+                    )
+                )
+            }
+            tracks
         } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    // ── Serializzazione cache Track ─────────────────────────────────────────────
+
+    /**
+     * Serializza una lista di Track in JSON compatto per la cache Room.
+     * Usa solo i campi necessari per ricostruire la Track (nessuna dipendenza esterna).
+     */
+    private fun serializeTracksToCache(tracks: List<Track>): String {
+        val array = JSONArray()
+        tracks.forEach { t ->
+            val obj = JSONObject()
+            obj.put("id", t.id)
+            obj.put("title", t.title)
+            obj.put("artist", t.artist)
+            obj.put("thumbnailUrl", t.thumbnailUrl)
+            obj.put("durationMs", t.durationMs)
+            if (!t.viewsText.isNullOrEmpty()) obj.put("viewsText", t.viewsText)
+            if (!t.album.isNullOrEmpty()) obj.put("album", t.album)
+            if (!t.artistId.isNullOrEmpty()) obj.put("artistId", t.artistId)
+            array.put(obj)
+        }
+        return array.toString()
+    }
+
+    /**
+     * Deserializza il JSON della cache in una lista di Track.
+     * Gestisce il caso di JSON malformato restituendo una lista vuota.
+     */
+    private fun deserializeTracksFromCache(json: String): List<Track> {
+        return try {
+            val array = JSONArray(json)
+            (0 until array.length()).map { i ->
+                val obj = array.getJSONObject(i)
+                Track(
+                    id           = obj.getString("id"),
+                    title        = obj.getString("title"),
+                    artist       = obj.getString("artist"),
+                    thumbnailUrl = obj.optString("thumbnailUrl", ""),
+                    durationMs   = obj.optLong("durationMs", 210_000L),
+                    viewsText    = obj.optString("viewsText").takeIf { it.isNotEmpty() },
+                    album        = obj.optString("album").takeIf { it.isNotEmpty() },
+                    artistId     = obj.optString("artistId").takeIf { it.isNotEmpty() }
+                )
+            }
+        } catch (_: Exception) {
             emptyList()
         }
     }

@@ -1,6 +1,8 @@
 package com.muse.app.data.local
 
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "tracks")
@@ -73,6 +75,19 @@ data class FollowedArtistEntity(
     val avatarUrl: String = "",
     val browseId: String? = null,
     val followedAt: Long = System.currentTimeMillis()
+)
+
+/**
+ * Cache dei risultati di ricerca.
+ * La chiave è la query normalizzata (lowercase, trim).
+ * TTL: 7 giorni — oltre quella soglia il repository considera l'entry scaduta
+ * e interroga nuovamente la rete.
+ */
+@Entity(tableName = "search_cache")
+data class SearchCacheEntity(
+    @PrimaryKey val query: String,           // query normalizzata
+    val tracksJson: String,                  // JSON dell'elenco Track serializzato
+    val cachedAt: Long = System.currentTimeMillis()
 )
 
 @Dao
@@ -224,6 +239,35 @@ interface FollowedArtistDao {
     suspend fun isFollowing(artistId: String): Int
 }
 
+@Dao
+interface SearchCacheDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(entry: SearchCacheEntity)
+
+    @Query("SELECT * FROM search_cache WHERE query = :query LIMIT 1")
+    suspend fun get(query: String): SearchCacheEntity?
+
+    /** Elimina le entry scadute (più vecchie di :maxAgeMs millisecondi). */
+    @Query("DELETE FROM search_cache WHERE cachedAt < :cutoff")
+    suspend fun evictExpired(cutoff: Long)
+
+    /** Elimina tutta la cache (utile per debug o refresh forzato). */
+    @Query("DELETE FROM search_cache")
+    suspend fun clear()
+}
+
+/** Migration 7→8: aggiunge la tabella search_cache senza toccare i dati esistenti. */
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            "CREATE TABLE IF NOT EXISTS search_cache (" +
+            "query TEXT NOT NULL PRIMARY KEY, " +
+            "tracksJson TEXT NOT NULL, " +
+            "cachedAt INTEGER NOT NULL)"
+        )
+    }
+}
+
 @Database(
     entities = [
         TrackEntity::class,
@@ -231,9 +275,10 @@ interface FollowedArtistDao {
         PlaylistEntity::class,
         PlaylistTrackEntity::class,
         HistoryEntity::class,
-        FollowedArtistEntity::class
+        FollowedArtistEntity::class,
+        SearchCacheEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -241,4 +286,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
     abstract fun historyDao(): HistoryDao
     abstract fun followedArtistDao(): FollowedArtistDao
+    abstract fun searchCacheDao(): SearchCacheDao
 }
