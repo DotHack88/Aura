@@ -11,6 +11,7 @@ import com.muse.app.domain.model.SearchResult
 import com.muse.app.domain.model.Track
 import com.muse.app.domain.model.UpNextResult
 import com.muse.app.utils.toHighResThumbnail
+import com.muse.app.utils.buildYoutubeThumbnailUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -53,6 +54,48 @@ class YoutubeMusicService(
             .build()
     }
 
+    /**
+     * Carica i metadati di un brano/video direttamente dal suo videoId, senza ricerca.
+     * Utile per mix, video lunghi e contenuti che la ricerca normale non restituisce.
+     * Chiama l'endpoint /player che restituisce sempre info per qualsiasi videoId valido.
+     */
+    suspend fun getTrackByVideoId(videoId: String): Track? = withContext(Dispatchers.IO) {
+        try {
+            val payload = "\"videoId\": \"$videoId\", \"playlistId\": \"RDAMVM$videoId\""
+            val request = buildInnertubeRequest("player", payload)
+            val response = client.newCall(request).execute()
+            val rawJson = response.body?.string().orEmpty()
+            if (rawJson.isBlank()) return@withContext null
+
+            val root = gson.fromJson(rawJson, JsonObject::class.java)
+            val details = root.getAsJsonObject("videoDetails") ?: return@withContext null
+
+            val title = details.get("title")?.asString.orEmpty()
+            val author = details.get("author")?.asString.orEmpty()
+            val lengthSeconds = details.get("lengthSeconds")?.asString?.toLongOrNull() ?: 210L
+
+            val thumbs = details.getAsJsonObject("thumbnail")
+                ?.getAsJsonArray("thumbnails")
+            val thumbUrl = (thumbs?.lastOrNull()?.asJsonObject?.get("url")?.asString.orEmpty())
+                .toHighResThumbnail()
+                .ifEmpty { buildYoutubeThumbnailUrl(videoId) }
+
+            if (title.isBlank()) return@withContext null
+
+            Track(
+                id = videoId,
+                title = title,
+                artist = author,
+                thumbnailUrl = thumbUrl,
+                durationMs = lengthSeconds * 1000L,
+                viewsText = details.get("viewCount")?.asString?.let { "$it visualizzazioni" }
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     suspend fun searchMusic(query: String): SearchResult = withContext(Dispatchers.IO) {
         try {
             val payload = "\"query\": \"${query.replace("\"", "\\\"")}\""
@@ -61,7 +104,27 @@ class YoutubeMusicService(
             val response = client.newCall(request).execute()
             val rawJson = response.body?.string().orEmpty()
 
-            parseYoutubeMusicResponse(rawJson, query)
+            val mainResult = parseYoutubeMusicResponse(rawJson, query)
+
+            // Recupera anche i Video (tab Video di YouTube Music) per includere
+            // contenuti come mashup, mix o video musicali non catalogati come "Brani"
+            val videoTracks = try {
+                val videoPayload = "\"query\": \"${query.replace("\"", "\\\"")}\", \"params\": \"EgWKAQIQAWoKEAoQAxAEEAkQBQ%3D%3D\""
+                val videoRequest = buildInnertubeRequest("search", videoPayload)
+                val videoResponse = client.newCall(videoRequest).execute()
+                val videoJson = videoResponse.body?.string().orEmpty()
+                parseYoutubeMusicResponse(videoJson, query).allTracks
+            } catch (e: Exception) { emptyList() }
+
+            // Unisci i risultati: prima i brani originali, poi i video non già presenti
+            val existingIds = mainResult.allTracks.map { it.id }.toSet()
+            val extraTracks = videoTracks.filter { it.id !in existingIds }
+            val mergedTracks = mainResult.allTracks + extraTracks
+
+            mainResult.copy(
+                allTracks = mergedTracks,
+                popularTracks = if (mergedTracks.size > 5) mergedTracks.take(5) else mergedTracks
+            )
         } catch (e: Exception) {
             e.printStackTrace()
             SearchResult()
@@ -374,7 +437,7 @@ class YoutubeMusicService(
                         val thumb = mrlir.getAsJsonObject("thumbnail")?.getAsJsonObject("musicThumbnailRenderer")?.getAsJsonObject("thumbnail")?.getAsJsonArray("thumbnails")?.lastOrNull()?.asJsonObject?.get("url")?.asString.orEmpty().toHighResThumbnail()
                         
                         if (!videoId.isNullOrEmpty() && trackTitle.isNotEmpty()) {
-                            tracks.add(Track(id = videoId, title = trackTitle, artist = artistName, artistId = browseId, thumbnailUrl = thumb, durationMs = 180000L))
+                            tracks.add(Track(id = videoId, title = trackTitle, artist = artistName, artistId = browseId, thumbnailUrl = thumb.ifEmpty { buildYoutubeThumbnailUrl(videoId) }, durationMs = 180000L))
                         }
                     } else if (mtr != null) {
                         // Estrai dati comuni per tutti i musicTwoRowItemRenderer
@@ -698,7 +761,7 @@ class YoutubeMusicService(
                             title = title,
                             artist = finalArtist,
                             artistId = artistBrowseId,
-                            thumbnailUrl = thumb,
+                            thumbnailUrl = thumb.ifEmpty { buildYoutubeThumbnailUrl(videoId) },
                             durationMs = durationMs,
                             viewsText = viewsText,
                             album = albumName,
@@ -1025,7 +1088,7 @@ class YoutubeMusicService(
                             title = title,
                             artist = if (artistNames.isNotEmpty()) artistNames.joinToString(", ") else "YouTube Music",
                             artistId = artistBrowseId,
-                            thumbnailUrl = thumb,
+                            thumbnailUrl = thumb.ifEmpty { buildYoutubeThumbnailUrl(videoId) },
                             durationMs = 210_000L,
                             viewsText = viewsText,
                             album = albumName
@@ -1155,7 +1218,7 @@ class YoutubeMusicService(
                             title = title,
                             artist = if (artistNames.isNotEmpty()) artistNames.joinToString(", ") else "Unknown",
                             artistId = artistId,
-                            thumbnailUrl = thumb,
+                            thumbnailUrl = thumb.ifEmpty { buildYoutubeThumbnailUrl(vId) },
                             durationMs = durationMs,
                             album = albumName
                         )

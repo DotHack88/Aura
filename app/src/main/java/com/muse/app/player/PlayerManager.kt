@@ -8,6 +8,7 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -24,6 +25,7 @@ import com.muse.app.domain.model.Track
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,8 +48,15 @@ class PlayerManager(
     private val context: Context,
     private val musicRepository: MusicRepository,
     private val lyricsProvider: LyricsProvider = DefaultLyricsProvider(),
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main)
+    // Dispatchers.Default: non blocca il Main thread e non viene throttlato in background/lockscreen.
+    // SupervisorJob: un figlio che fallisce non cancella gli altri job (es. errore su un brano non blocca il next()).
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 ) : Player.Listener {
+
+    // WakeLock parziale: mantiene la CPU attiva durante l'estrazione dello stream rete.
+    // Viene acquisito all'inizio di extractJob e rilasciato appena ExoPlayer è pronto.
+    private val wakeLock: PowerManager.WakeLock = (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
+        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Muse::StreamExtractionWakeLock")
 
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
@@ -449,39 +458,50 @@ class PlayerManager(
                 return@launch
             }
 
-            // 2. Nessun file locale → estrai da YouTube con retry
+            // 2. Nessun file locale → estrai da YouTube con retry.
+            // Acquisisce il WakeLock per mantenere la CPU attiva durante il fetch di rete
+            // in background/lockscreen (senza di esso Android può sospendere il processo
+            // proprio mentre NewPipe estrae l'URL dello stream).
+            if (!wakeLock.isHeld) wakeLock.acquire(30_000L) // timeout massimo 30s
+
             var streamUrl: String? = null
 
-            if (track.id.startsWith("http://") || track.id.startsWith("https://")) {
-                // URL diretto (radio italiane, stream HTTP/HTTPS)
-                streamUrl = track.id
-            } else if (track.durationMs == -1L) {
-                // Live stream YouTube (radio) — usa Piped API, molto più affidabile per i live
-                Log.d("PlayerManager", "Rilevato live stream YouTube per ${track.id} — uso Piped API")
-                streamUrl = NewPipeStreamExtractor.getLiveStreamUrl(track.id)
-                if (streamUrl == null) {
-                    Log.e("PlayerManager", "Impossibile ottenere live stream per ${track.id}")
-                }
-            } else {
-                var attempts = 0
-                val maxAttempts = 2
+            try {
+                if (track.id.startsWith("http://") || track.id.startsWith("https://")) {
+                    // URL diretto (radio italiane, stream HTTP/HTTPS)
+                    streamUrl = track.id
+                } else if (track.durationMs == -1L) {
+                    // Live stream YouTube (radio) — usa Piped API, molto più affidabile per i live
+                    Log.d("PlayerManager", "Rilevato live stream YouTube per ${track.id} — uso Piped API")
+                    streamUrl = NewPipeStreamExtractor.getLiveStreamUrl(track.id)
+                    if (streamUrl == null) {
+                        Log.e("PlayerManager", "Impossibile ottenere live stream per ${track.id}")
+                    }
+                } else {
+                    var attempts = 0
+                    val maxAttempts = 2
 
-                while (attempts < maxAttempts && streamUrl == null) {
-                    attempts++
-                    try {
-                        Log.d("PlayerManager", "Tentativo $attempts/$maxAttempts per ${track.id}")
-                        streamUrl = NewPipeStreamExtractor.getAudioStreamUrl(track.id)
-                        if (streamUrl == null) {
-                            Log.d("PlayerManager", "Fallback su stream video per ${track.id}")
-                            streamUrl = NewPipeStreamExtractor.getVideoStreamUrl(track.id)
+                    while (attempts < maxAttempts && streamUrl == null) {
+                        attempts++
+                        try {
+                            Log.d("PlayerManager", "Tentativo $attempts/$maxAttempts per ${track.id}")
+                            streamUrl = NewPipeStreamExtractor.getAudioStreamUrl(track.id)
+                            if (streamUrl == null) {
+                                Log.d("PlayerManager", "Fallback su stream video per ${track.id}")
+                                streamUrl = NewPipeStreamExtractor.getVideoStreamUrl(track.id)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("PlayerManager", "Eccezione al tentativo $attempts per ${track.id}", e)
                         }
-                    } catch (e: Exception) {
-                        Log.e("PlayerManager", "Eccezione al tentativo $attempts per ${track.id}", e)
-                    }
-                    if (streamUrl == null && attempts < maxAttempts) {
-                        kotlinx.coroutines.delay(1500)
+                        if (streamUrl == null && attempts < maxAttempts) {
+                            delay(1500)
+                        }
                     }
                 }
+            } finally {
+                // Rilascia il WakeLock non appena l'URL è stato risolto (o fallito).
+                // ExoPlayer gestisce il proprio WakeLock internamente durante il buffering.
+                if (wakeLock.isHeld) wakeLock.release()
             }
 
             if (streamUrl != null) {
@@ -702,26 +722,28 @@ class PlayerManager(
     }
 
     fun togglePlayPause() {
-        // Se stiamo trasmettendo su Cast, controlliamo il RemoteMediaClient
-        val remoteClient = CastManager.castSession.value?.remoteMediaClient
-        if (CastManager.isCasting.value && remoteClient != null) {
-            if (remoteClient.isPlaying) {
-                remoteClient.pause()
-                _playerState.update { it.copy(isPlaying = false) }
-            } else {
-                remoteClient.play()
-                _playerState.update { it.copy(isPlaying = true) }
+        scope.launch(Dispatchers.Main) {
+            // Se stiamo trasmettendo su Cast, controlliamo il RemoteMediaClient
+            val remoteClient = CastManager.castSession.value?.remoteMediaClient
+            if (CastManager.isCasting.value && remoteClient != null) {
+                if (remoteClient.isPlaying) {
+                    remoteClient.pause()
+                    _playerState.update { it.copy(isPlaying = false) }
+                } else {
+                    remoteClient.play()
+                    _playerState.update { it.copy(isPlaying = true) }
+                }
+                return@launch
             }
-            return
-        }
-        // Riproduzione locale
-        if (exoPlayer.isPlaying) {
-            pausedByFocusLoss = false // pausa manuale: non riprendere automaticamente al GAIN
-            exoPlayer.pause()
-            releaseAudioFocus()
-        } else {
-            requestAudioFocus()
-            exoPlayer.play()
+            // Riproduzione locale
+            if (exoPlayer.isPlaying) {
+                pausedByFocusLoss = false // pausa manuale: non riprendere automaticamente al GAIN
+                exoPlayer.pause()
+                releaseAudioFocus()
+            } else {
+                requestAudioFocus()
+                exoPlayer.play()
+            }
         }
     }
 
@@ -799,80 +821,86 @@ class PlayerManager(
         }
     }
     fun seekTo(positionMs: Long) {
-        val remoteClient = CastManager.castSession.value?.remoteMediaClient
-        if (CastManager.isCasting.value && remoteClient != null) {
-            remoteClient.seek(com.google.android.gms.cast.MediaSeekOptions.Builder().setPosition(positionMs).build())
-        } else {
-            exoPlayer.seekTo(positionMs)
+        scope.launch(Dispatchers.Main) {
+            val remoteClient = CastManager.castSession.value?.remoteMediaClient
+            if (CastManager.isCasting.value && remoteClient != null) {
+                remoteClient.seek(com.google.android.gms.cast.MediaSeekOptions.Builder().setPosition(positionMs).build())
+            } else {
+                exoPlayer.seekTo(positionMs)
+            }
+            _playerState.update { it.copy(positionMs = positionMs) }
         }
-        _playerState.update { it.copy(positionMs = positionMs) }
     }
 
     fun next() {
-        val state = _playerState.value
-        if (state.playlist.isEmpty()) return
+        scope.launch(Dispatchers.Main) {
+            val state = _playerState.value
+            if (state.playlist.isEmpty()) return@launch
 
-        // ── Muse Radio: segnale skip sul brano corrente ──
-        val currentPos = exoPlayer.currentPosition
-        state.currentTrack?.let { current ->
-            if (!signalReachedComplete && !signalReached30s) {
-                // Skip prima dei 10 secondi
-                if (currentPos < 10_000L) {
-                    recordListenSignal(current.id, ListenSignal.SKIP_SHORT)
-                } else if (currentPos < 30_000L) {
-                    recordListenSignal(current.id, ListenSignal.SKIP_LONG)
+            // ── Muse Radio: segnale skip sul brano corrente ──
+            val currentPos = exoPlayer.currentPosition
+            state.currentTrack?.let { current ->
+                if (!signalReachedComplete && !signalReached30s) {
+                    // Skip prima dei 10 secondi
+                    if (currentPos < 10_000L) {
+                        recordListenSignal(current.id, ListenSignal.SKIP_SHORT)
+                    } else if (currentPos < 30_000L) {
+                        recordListenSignal(current.id, ListenSignal.SKIP_LONG)
+                    }
                 }
             }
-        }
 
-        val nextIndex = if (state.shuffle && state.playlist.size > 1) {
-            var randomIndex: Int
-            do {
-                randomIndex = kotlin.random.Random.nextInt(state.playlist.size)
-            } while (randomIndex == state.currentIndex)
-            randomIndex
-        } else {
-            val candidate = state.currentIndex + 1
-            if (candidate >= state.playlist.size) {
-                if (state.repeat == RepeatMode.ALL) {
-                    0
-                } else {
-                    return
-                }
+            val nextIndex = if (state.shuffle && state.playlist.size > 1) {
+                var randomIndex: Int
+                do {
+                    randomIndex = kotlin.random.Random.nextInt(state.playlist.size)
+                } while (randomIndex == state.currentIndex)
+                randomIndex
             } else {
-                candidate
+                val candidate = state.currentIndex + 1
+                if (candidate >= state.playlist.size) {
+                    if (state.repeat == RepeatMode.ALL) {
+                        0
+                    } else {
+                        return@launch
+                    }
+                } else {
+                    candidate
+                }
             }
+            val nextTrack = state.playlist[nextIndex]
+            // Controlla se riempire la coda prima di avanzare
+            val tracksAhead = state.playlist.size - nextIndex - 1
+            if (tracksAhead <= 3) {
+                val seed = radioSeedTrackId ?: nextTrack.id
+                generateRadioQueue(seed, state.playlist)
+            }
+            playTrack(nextTrack, state.playlist)
         }
-        val nextTrack = state.playlist[nextIndex]
-        // Controlla se riempire la coda prima di avanzare
-        val tracksAhead = state.playlist.size - nextIndex - 1
-        if (tracksAhead <= 3) {
-            val seed = radioSeedTrackId ?: nextTrack.id
-            generateRadioQueue(seed, state.playlist)
-        }
-        playTrack(nextTrack, state.playlist)
     }
 
     fun previous() {
-        val state = _playerState.value
-        if (state.playlist.isEmpty()) return
+        scope.launch(Dispatchers.Main) {
+            val state = _playerState.value
+            if (state.playlist.isEmpty()) return@launch
 
-        if (state.positionMs > 3000L || exoPlayer.currentPosition > 3000L) {
-            seekTo(0L)
-            return
-        }
+            if (state.positionMs > 3000L || exoPlayer.currentPosition > 3000L) {
+                seekTo(0L)
+                return@launch
+            }
 
-        val prevIndex = if (state.shuffle && state.playlist.size > 1) {
-            var randomIndex: Int
-            do {
-                randomIndex = kotlin.random.Random.nextInt(state.playlist.size)
-            } while (randomIndex == state.currentIndex)
-            randomIndex
-        } else {
-            if (state.currentIndex > 0) state.currentIndex - 1 else state.playlist.size - 1
+            val prevIndex = if (state.shuffle && state.playlist.size > 1) {
+                var randomIndex: Int
+                do {
+                    randomIndex = kotlin.random.Random.nextInt(state.playlist.size)
+                } while (randomIndex == state.currentIndex)
+                randomIndex
+            } else {
+                if (state.currentIndex > 0) state.currentIndex - 1 else state.playlist.size - 1
+            }
+            val prevTrack = state.playlist[prevIndex]
+            playTrack(prevTrack, state.playlist)
         }
-        val prevTrack = state.playlist[prevIndex]
-        playTrack(prevTrack, state.playlist)
     }
 
     fun toggleShuffle() {
@@ -923,7 +951,8 @@ class PlayerManager(
 
     private fun startProgressTicker() {
         progressTickerJob?.cancel()
-        progressTickerJob = scope.launch {
+        // ExoPlayer deve essere letto dal Main thread.
+        progressTickerJob = scope.launch(Dispatchers.Main) {
             var lastHistoryRecord = 0L
             while (isActive) {
                 val remoteClient = CastManager.castSession.value?.remoteMediaClient
@@ -1099,34 +1128,40 @@ class PlayerManager(
                 }
             }
 
-            when (state.repeat) {
-                RepeatMode.ONE -> {
-                    // Seek all'inizio + play esplicito per evitare il doppio ascolto
-                    signalReachedComplete = false
-                    signalReached30s = false
-                    signalReached50pct = false
-                    recordListenSignal(state.currentTrack?.id ?: "", ListenSignal.REPLAY)
-                    exoPlayer.seekTo(0L)
-                    exoPlayer.play()
-                }
-                RepeatMode.ALL -> next()
-                RepeatMode.OFF -> {
-                    // Fine playlist: ferma gracefully senza errori
-                    val hasNext = state.currentIndex < state.playlist.size - 1
-                    if (hasNext) {
-                        next()
-                    } else {
-                        // Ultimo brano — reset stato senza mostrare errori
-                        _playerState.update { it.copy(isPlaying = false, positionMs = 0L) }
-                        scope.launch {
+            // IMPORTANTE: onPlaybackStateChanged viene chiamato direttamente da ExoPlayer
+            // sul thread della looper di ExoPlayer (non sul Main thread). Per evitare che
+            // il passaggio al brano successivo venga throttlato dal sistema quando l'app è
+            // in background/lockscreen, launciamo tutto il lavoro pesante su scope (Default).
+            scope.launch {
+                when (state.repeat) {
+                    RepeatMode.ONE -> {
+                        // Seek all'inizio + play esplicito per evitare il doppio ascolto
+                        signalReachedComplete = false
+                        signalReached30s = false
+                        signalReached50pct = false
+                        recordListenSignal(state.currentTrack?.id ?: "", ListenSignal.REPLAY)
+                        withContext(Dispatchers.Main) {
+                            exoPlayer.seekTo(0L)
+                            exoPlayer.play()
+                        }
+                    }
+                    RepeatMode.ALL -> next()
+                    RepeatMode.OFF -> {
+                        // Fine playlist: ferma gracefully senza errori
+                        val hasNext = state.currentIndex < state.playlist.size - 1
+                        if (hasNext) {
+                            next()
+                        } else {
+                            // Ultimo brano — reset stato senza mostrare errori
+                            withContext(Dispatchers.Main) {
+                                _playerState.update { it.copy(isPlaying = false, positionMs = 0L) }
+                            }
                             delay(500)
                             isNaturalEnd = false
                         }
                     }
                 }
-            }
-            // Rilascia il lock dopo un breve delay per immunizzarsi da STATE_ENDED ridondanti
-            scope.launch {
+                // Rilascia il lock dopo un breve delay per immunizzarsi da STATE_ENDED ridondanti
                 delay(400)
                 isHandlingEnd = false
             }
@@ -1245,6 +1280,8 @@ class PlayerManager(
         lyricsJob?.cancel()
         sleepTimerJob?.cancel()
         radioRefillJob?.cancel()
+        crossfadeJob?.cancel()
+        if (wakeLock.isHeld) wakeLock.release()
         equalizerManager.release()
         exoPlayer.release()
     }

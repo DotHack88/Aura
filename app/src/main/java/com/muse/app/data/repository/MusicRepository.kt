@@ -104,6 +104,14 @@ class MusicRepository(
         return youtubeMusicService.searchAlbums(query)
     }
 
+    /**
+     * Carica un brano direttamente dal suo videoId di YouTube/YouTube Music.
+     * Bypassa la ricerca testuale — utile per mix, video lunghi, URL incollati.
+     */
+    suspend fun getTrackByVideoId(videoId: String): Track? {
+        return youtubeMusicService.getTrackByVideoId(videoId)
+    }
+
     suspend fun searchAll(query: String): SearchResult {
         // ── 1. Fonte primaria assoluta: YouTube Music (https://music.youtube.com / Innertube API) ──
         val musicResult = youtubeMusicService.searchMusic(query)
@@ -680,20 +688,8 @@ class MusicRepository(
             )
         )
         
-        // Imposta la copertina usando UPDATE sicuro se la playlist non ha ancora una copertina personalizzata
-        val playlist = playlistDao.getPlaylistById(playlistId)
-        if (playlist != null) {
-            val newCover = track.thumbnailUrl.toHighResThumbnail()
-            if (newCover.isNotEmpty() && playlist.coverUrl.isNullOrEmpty()) {
-                playlistDao.updatePlaylistCover(playlistId, newCover)
-            }
-            try {
-                val updatedPl = playlistDao.getPlaylistById(playlistId)
-                if (updatedPl != null) {
-                    syncService.syncPlaylist(Playlist(id = updatedPl.id, name = updatedPl.name, coverUrl = updatedPl.coverUrl, createdAt = updatedPl.createdAt, orderIndex = updatedPl.orderIndex))
-                }
-            } catch (e: Exception) { /* Handled */ }
-        }
+        // Aggiorna la copertina della playlist con un collage dei primi 4 brani
+        updatePlaylistCoverCollage(playlistId)
         try {
             syncService.addTrackToPlaylist(playlistId, track)
         } catch (e: Exception) {
@@ -704,21 +700,8 @@ class MusicRepository(
     suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
         playlistDao.removeTrackFromPlaylist(playlistId, trackId)
         
-        // Se la copertina era basata su questa traccia o vuota, aggiorna con il primo brano rimanente
-        val remainingTracks = playlistDao.getTracksForPlaylistList(playlistId)
-        val playlist = playlistDao.getPlaylistById(playlistId)
-        if (playlist != null) {
-            val newCover = remainingTracks.firstOrNull()?.thumbnailUrl?.toHighResThumbnail()
-            if (playlist.coverUrl.isNullOrEmpty() || playlist.coverUrl.contains(trackId)) {
-                playlistDao.updatePlaylistCover(playlistId, newCover)
-            }
-            try {
-                val updatedPl = playlistDao.getPlaylistById(playlistId)
-                if (updatedPl != null) {
-                    syncService.syncPlaylist(Playlist(id = updatedPl.id, name = updatedPl.name, coverUrl = updatedPl.coverUrl, createdAt = updatedPl.createdAt, orderIndex = updatedPl.orderIndex))
-                }
-            } catch (e: Exception) { /* Handled */ }
-        }
+        // Aggiorna la copertina della playlist con un collage dei primi 4 brani
+        updatePlaylistCoverCollage(playlistId)
         
         try {
             syncService.removeTrackFromPlaylist(playlistId, trackId)
@@ -812,10 +795,9 @@ class MusicRepository(
                         PlaylistTrackEntity(playlistId = pl.id, trackId = track.id, orderIndex = index)
                     )
                 }
-                if (effectiveCover.isNullOrEmpty() && tracks.isNotEmpty()) {
-                    val firstCover = tracks.first().thumbnailUrl.toHighResThumbnail()
-                    playlistDao.updatePlaylistCover(pl.id, firstCover)
-                }
+                
+                // Aggiorna la copertina della playlist con un collage
+                updatePlaylistCoverCollage(pl.id)
             }
 
             val cloudHistory = syncService.pullHistory()
@@ -855,4 +837,30 @@ class MusicRepository(
         }
     }
 
+    private suspend fun updatePlaylistCoverCollage(playlistId: String) {
+        val playlist = playlistDao.getPlaylistById(playlistId) ?: return
+        
+        // Se l'utente ha impostato una copertina personalizzata locale, non sovrascriverla.
+        // Assumiamo che le copertine automatiche contengano "ytimg", "ggpht", o siano liste separate da virgole.
+        val isCustom = !playlist.coverUrl.isNullOrEmpty() && 
+            !playlist.coverUrl.contains("ytimg") && 
+            !playlist.coverUrl.contains("ggpht") &&
+            !playlist.coverUrl.contains(",")
+            
+        if (isCustom) return
+
+        val tracks = playlistDao.getTracksForPlaylistList(playlistId)
+        val covers = tracks.mapNotNull { it.thumbnailUrl.toHighResThumbnail().takeIf { it.isNotBlank() } }.distinct().take(4)
+        val newCover = covers.joinToString(",")
+
+        if (playlist.coverUrl != newCover) {
+            playlistDao.updatePlaylistCover(playlistId, newCover)
+            try {
+                val updatedPl = playlistDao.getPlaylistById(playlistId)
+                if (updatedPl != null) {
+                    syncService.syncPlaylist(Playlist(id = updatedPl.id, name = updatedPl.name, coverUrl = updatedPl.coverUrl, createdAt = updatedPl.createdAt, orderIndex = updatedPl.orderIndex))
+                }
+            } catch (e: Exception) { /* Handled */ }
+        }
+    }
 }

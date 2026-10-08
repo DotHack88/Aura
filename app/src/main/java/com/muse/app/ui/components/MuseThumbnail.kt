@@ -2,6 +2,9 @@ package com.muse.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,12 +52,46 @@ fun MuseThumbnail(
     val baseModifier = modifier.then(Modifier.size(size))
 
     if (effectiveUrl != null) {
-        AsyncImage(
-            model = effectiveUrl,
-            contentDescription = contentDescription,
-            modifier = baseModifier.clip(shape),
-            contentScale = ContentScale.Crop
-        )
+        val urls = effectiveUrl.split(",")
+        if (urls.size >= 4) {
+            Column(modifier = baseModifier.clip(shape)) {
+                Row(modifier = Modifier.weight(1f)) {
+                    AsyncImage(
+                        model = urls[0],
+                        contentDescription = null,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        contentScale = ContentScale.Crop
+                    )
+                    AsyncImage(
+                        model = urls[1],
+                        contentDescription = null,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                Row(modifier = Modifier.weight(1f)) {
+                    AsyncImage(
+                        model = urls[2],
+                        contentDescription = null,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        contentScale = ContentScale.Crop
+                    )
+                    AsyncImage(
+                        model = urls[3],
+                        contentDescription = null,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            }
+        } else {
+            AsyncImage(
+                model = urls.first(),
+                contentDescription = contentDescription,
+                modifier = baseModifier.clip(shape),
+                contentScale = ContentScale.Crop
+            )
+        }
     } else {
         Box(
             modifier = baseModifier

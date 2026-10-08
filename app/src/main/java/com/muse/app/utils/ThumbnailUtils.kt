@@ -20,11 +20,16 @@ fun String.toHighResThumbnail(): String {
 
     return when {
         // Pattern 1: i.ytimg.com video thumbnails
+        // Per i mix e video YouTube, usiamo hqdefault che è quasi sempre disponibile.
+        // Se l'URL punta già a hqdefault o maxresdefault, non tocchiamo nulla.
         contains("i.ytimg.com") -> {
-            // maxresdefault.jpg returns 404 on many videos/mixes. hqdefault.jpg is always available.
-            replace("mqdefault.jpg", "hqdefault.jpg")
-                .replace("sddefault.jpg", "hqdefault.jpg")
-                .replace("default.jpg", "hqdefault.jpg")
+            when {
+                contains("maxresdefault") -> this // già al massimo
+                contains("hqdefault") -> this // già buono
+                else -> replace("mqdefault.jpg", "hqdefault.jpg")
+                    .replace("sddefault.jpg", "hqdefault.jpg")
+                    .replace(Regex("/(default|[0-9]+)\\.jpg"), "/hqdefault.jpg")
+            }
         }
 
         // Pattern 2: yt3.googleusercontent.com with size params like =w226-h226-s-l90-rj
@@ -41,4 +46,12 @@ fun String.toHighResThumbnail(): String {
 
         else -> this
     }
+}
+
+/**
+ * Dato un videoId di YouTube, costruisce un URL thumbnail garantito disponibile.
+ * Utile come fallback quando il campo thumbnailUrl arriva vuoto.
+ */
+fun buildYoutubeThumbnailUrl(videoId: String): String {
+    return "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
 }

@@ -64,6 +64,7 @@ import com.muse.app.ui.search.SearchScreen
 import com.muse.app.ui.library.PlaylistScreen
 import com.muse.app.ui.profile.StatsScreen
 import com.muse.app.ui.radio.RadioScreen
+import com.muse.app.ui.home.MoodScreen
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Home : Screen("home", "Home", Icons.Default.Home)
@@ -152,7 +153,8 @@ fun AppNavigation(
                         bottomNavItems.forEach { screen ->
                             val isSelected = currentRoute == screen.route || 
                                 currentRoute?.startsWith(screen.route + "?") == true ||
-                                (screen.route == Screen.Search.route && (currentRoute == "moods_and_genres" || currentRoute == "new_releases"))
+                                (screen.route == Screen.Search.route && (currentRoute == "moods_and_genres" || currentRoute == "new_releases")) ||
+                                (screen.route == Screen.Home.route && currentRoute?.startsWith("mood/") == true)
 
                             NavigationBarItem(
                                 icon = { Icon(screen.icon, contentDescription = screen.title) },
@@ -160,18 +162,22 @@ fun AppNavigation(
                                 selected = isSelected,
                                 onClick = {
                                     if (isSelected) {
-                                        // Se è già selezionata, cliccarla di nuovo riporta alla radice della tab
-                                        navController.navigate(screen.route) {
-                                            popUpTo(screen.route) { inclusive = false }
-                                            launchSingleTop = true
+                                        // Se è già selezionata ma siamo in una sotto-schermata, torniamo alla radice
+                                        if (currentRoute != screen.route) {
+                                            navController.popBackStack(screen.route, inclusive = false)
                                         }
                                     } else {
-                                        navController.navigate(screen.route) {
-                                            popUpTo(Screen.Home.route) {
-                                                saveState = true
+                                        if (screen.route == Screen.Home.route) {
+                                            // Se andiamo alla Home, semplicemente svuotiamo lo stack fino alla Home
+                                            navController.popBackStack(Screen.Home.route, inclusive = false)
+                                        } else {
+                                            navController.navigate(screen.route) {
+                                                popUpTo(Screen.Home.route) {
+                                                    saveState = true
+                                                }
+                                                launchSingleTop = true
+                                                restoreState = true
                                             }
-                                            launchSingleTop = true
-                                            restoreState = true
                                         }
                                     }
                                 },
@@ -223,6 +229,11 @@ fun AppNavigation(
                         scaleOut(targetScale = 0.92f, animationSpec = tween(300, easing = FastOutSlowInEasing)) 
                     }
                 ) {
+                    val handleGenreClick: (String) -> Unit = { genre ->
+                        val encodedMood = java.net.URLEncoder.encode(genre, "UTF-8")
+                        navController.navigate("mood/$encodedMood")
+                    }
+
                     composable(Screen.Home.route) {
                         HomeScreen(
                             musicRepository = musicRepository,
@@ -230,7 +241,7 @@ fun AppNavigation(
                             onOpenSearch = { navController.navigate(Screen.Search.route) },
                             onNavigateToNewReleases = { navController.navigate("new_releases") },
                             onNavigateToMoodsAndGenres = { navController.navigate("moods_and_genres") },
-                            onGenreClick = { genre -> navController.navigate("${Screen.Search.route}?query=$genre") },
+                            onGenreClick = handleGenreClick,
                             onNavigateToArtist = { browseId -> navController.navigate("artist/$browseId") },
                             onNavigateToStats = { navController.navigate("stats") },
                             onNavigateToAlbum = { browseId, title, artist, cover ->
@@ -245,7 +256,22 @@ fun AppNavigation(
                     composable("moods_and_genres") {
                         MoodsAndGenresScreen(
                             onBack = { navController.navigateUp() },
-                            onGenreClick = { genre -> navController.navigate("${Screen.Search.route}?query=$genre") }
+                            onGenreClick = handleGenreClick
+                        )
+                    }
+                    composable(
+                        route = "mood/{moodName}",
+                        arguments = listOf(androidx.navigation.navArgument("moodName") {
+                            type = androidx.navigation.NavType.StringType
+                        })
+                    ) { backStackEntry ->
+                        val rawMood = backStackEntry.arguments?.getString("moodName") ?: ""
+                        val moodName = java.net.URLDecoder.decode(rawMood, "UTF-8")
+                        MoodScreen(
+                            moodName = moodName,
+                            musicRepository = musicRepository,
+                            playerManager = playerManager,
+                            onBack = { navController.navigateUp() }
                         )
                     }
                     composable("new_releases") {

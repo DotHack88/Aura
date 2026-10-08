@@ -148,6 +148,22 @@ fun SearchScreen(
     }
 
     // Ricerca debounced
+    fun extractYoutubeVideoId(input: String): String? {
+        // Riconosce: https://music.youtube.com/watch?v=XXXXX  o  https://youtu.be/XXXXX  o  https://www.youtube.com/watch?v=XXXXX
+        val patterns = listOf(
+            Regex("""[?&]v=([a-zA-Z0-9_-]{11})"""),
+            Regex("""youtu\.be/([a-zA-Z0-9_-]{11})"""),
+            Regex("""youtube\.com/embed/([a-zA-Z0-9_-]{11})""")
+        )
+        for (p in patterns) {
+            val match = p.find(input)
+            if (match != null) return match.groupValues[1]
+        }
+        // Se è già un videoId puro (11 caratteri alfanumerici)
+        if (input.matches(Regex("""[a-zA-Z0-9_-]{11}"""))) return input
+        return null
+    }
+
     fun onQueryChange(newQuery: String) {
         query = newQuery
         albumSearchResults = null
@@ -162,7 +178,19 @@ fun SearchScreen(
         searchJob = coroutineScope.launch {
             delay(350)
             isLoading = true
-            searchResult = musicRepository.searchAll(newQuery)
+
+            // Controlla se è un URL di YouTube/YouTube Music o un videoId diretto
+            val videoId = extractYoutubeVideoId(newQuery.trim())
+            if (videoId != null) {
+                val track = musicRepository.getTrackByVideoId(videoId)
+                searchResult = if (track != null) {
+                    SearchResult(allTracks = listOf(track), popularTracks = listOf(track))
+                } else {
+                    SearchResult()
+                }
+            } else {
+                searchResult = musicRepository.searchAll(newQuery)
+            }
             isLoading = false
         }
     }
@@ -227,14 +255,7 @@ fun SearchScreen(
             }
         }
 
-        if (isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            }
-        } else if (isLoading || (selectedFilter == "Album" && isAlbumsLoading)) {
+        if (isLoading || (selectedFilter == "Album" && isAlbumsLoading)) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
