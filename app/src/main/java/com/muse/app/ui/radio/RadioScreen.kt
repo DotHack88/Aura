@@ -26,6 +26,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
 import com.muse.app.domain.model.Track
 import com.muse.app.player.PlayerManager
 
@@ -1531,6 +1533,46 @@ val italianRadios: List<RadioStation> =
 
 val predefinedRadios: List<RadioStation> = youtubeRadios + lofiRadios + italianRadios
 
+private fun loadCustomRadios(context: Context): List<RadioStation> {
+    val prefs = context.getSharedPreferences("muse_custom_radios", Context.MODE_PRIVATE)
+    val raw = prefs.getString("radios_json", null) ?: return emptyList()
+    return try {
+        val array = org.json.JSONArray(raw)
+        (0 until array.length()).map { i ->
+            val obj = array.getJSONObject(i)
+            RadioStation(
+                videoId = obj.getString("videoId"),
+                name = obj.getString("name"),
+                description = obj.optString("description", "Stream Personalizzato"),
+                coverUrl = obj.optString("coverUrl", "https://cdn-icons-png.flaticon.com/512/1256/1256561.png"),
+                region = obj.optString("region", "Nazionale")
+            )
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun saveCustomRadios(context: Context, radios: List<RadioStation>) {
+    try {
+        val array = org.json.JSONArray()
+        radios.forEach { r ->
+            val obj = org.json.JSONObject().apply {
+                put("videoId", r.videoId)
+                put("name", r.name)
+                put("description", r.description)
+                put("coverUrl", r.coverUrl)
+                put("region", r.region)
+            }
+            array.put(obj)
+        }
+        context.getSharedPreferences("muse_custom_radios", Context.MODE_PRIVATE)
+            .edit()
+            .putString("radios_json", array.toString())
+            .apply()
+    } catch (_: Exception) {}
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1538,10 +1580,11 @@ fun RadioScreen(
     playerManager: PlayerManager,
     onNavigateToPlayer: () -> Unit
 ) {
+    val context = LocalContext.current
     var showAddDialog by remember { mutableStateOf(false) }
     var newRadioUrl by remember { mutableStateOf("") }
     var newRadioName by remember { mutableStateOf("") }
-    var customRadios by remember { mutableStateOf<List<RadioStation>>(emptyList()) }
+    var customRadios by remember { mutableStateOf(loadCustomRadios(context)) }
     var selectedRegion by remember { mutableStateOf("Tutte") }
 
     Scaffold(
@@ -1689,7 +1732,9 @@ fun RadioScreen(
                                     "https://img.youtube.com/vi/$videoId/hqdefault.jpg",
                                 region = "Nazionale"
                             )
-                            customRadios = customRadios + customRadio
+                            val updated = customRadios + customRadio
+                            customRadios = updated
+                            saveCustomRadios(context, updated)
                         }
                         showAddDialog = false
                         newRadioUrl = ""
@@ -1709,12 +1754,13 @@ private fun playRadio(
     playerManager: PlayerManager,
     onNavigateToPlayer: () -> Unit
 ) {
+    val isHttp = radio.videoId.startsWith("http")
     val track = Track(
         id = radio.videoId,
         title = radio.name,
         artist = radio.description,
         thumbnailUrl = radio.coverUrl,
-        durationMs = -1L
+        durationMs = if (isHttp) 0L else -1L
     )
     playerManager.playTrack(track)
     onNavigateToPlayer()

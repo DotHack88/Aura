@@ -434,7 +434,7 @@ fun SearchScreen(
                                 popularTracks = result.popularTracks,
                                 musicRepository = musicRepository,
                                 onPlayTrack = { track ->
-                                    playerManager.playTrack(track, tracks)
+                                    playerManager.playTrack(track)
                                 },
                                 onPlayAll = {
                                     if (tracks.isNotEmpty()) {
@@ -553,7 +553,7 @@ fun SearchScreen(
                             musicRepository = musicRepository,
                             playerManager = playerManager,
                             onNavigateToAlbum = onNavigateToAlbum,
-                            onClick = { playerManager.playTrack(track, tracks) }
+                            onClick = { playerManager.playTrack(track) }
                         )
                     }
                 }

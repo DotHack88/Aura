@@ -14,8 +14,8 @@ android {
         applicationId = "com.muse.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 19
-        versionName = "1.0.19"
+        versionCode = 20
+        versionName = "1.0.20"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -37,14 +37,13 @@ android {
     }
 
     buildTypes {
-        // ── BUILD 1: app-debug.apk ────────────────────────────────────────────
+        // ── BUILD 1: Aura-{versionName}-debug.apk ─────────────────────────────
         // Standard Android debug: debuggabile via USB, senza ottimizzazioni.
         // Ideale per sviluppo e test rapidi in Android Studio.
         debug {
             isDebuggable = true
             isMinifyEnabled = false
             isShrinkResources = false
-            // Mantiene il nome default: app-debug.apk
         }
 
         // ── BUILD 2: Aura-{versionName}-release.apk ───────────────────────────
@@ -59,12 +58,16 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Rinomina l'output in Aura-{versionName}-release.apk
+            // Rinomina l'output in Aura-{versionName}-release.apk e debug
             applicationVariants.all {
                 if (buildType.name == "release") {
                     outputs
                         .map { it as com.android.build.gradle.internal.api.BaseVariantOutputImpl }
                         .forEach { it.outputFileName = "Aura-$versionName-release.apk" }
+                } else if (buildType.name == "debug") {
+                    outputs
+                        .map { it as com.android.build.gradle.internal.api.BaseVariantOutputImpl }
+                        .forEach { it.outputFileName = "Aura-$versionName-debug.apk" }
                 }
             }
         }

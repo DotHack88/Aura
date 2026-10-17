@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -53,7 +54,14 @@ fun LyricsScreen(
 ) {
     val state by playerManager.playerState.collectAsState()
     val lyrics by playerManager.currentLyrics.collectAsState()
+    val isLyricsLoading by playerManager.isLyricsLoading.collectAsState()
     val track = state.currentTrack ?: return
+
+    LaunchedEffect(track.id) {
+        if (lyrics == null && !isLyricsLoading) {
+            playerManager.loadLyricsForTrack(track)
+        }
+    }
 
     val listState = rememberLazyListState()
     var showEqualizer by remember { mutableStateOf(false) }
@@ -72,19 +80,20 @@ fun LyricsScreen(
         label = "lyricsBg"
     )
 
-    // Offset di sincronizzazione manuale: default -1.0s (la maggior parte dei testi risulta
-    // leggermente in anticipo rispetto al segnale audio; l'utente può regolarlo con +/-)
-    var syncOffset by remember { mutableLongStateOf(-1000L) }
+    // Offset di sincronizzazione manuale (default 0s, regolabile dall'utente)
+    var syncOffset by remember(track.id) { mutableLongStateOf(0L) }
 
     // Calcola l'indice della riga attiva in base a state.positionMs e al syncOffset
     val currentLineIndex = remember(state.positionMs, syncOffset, lyrics) {
         val lines = lyrics?.lines.orEmpty()
         if (lines.isEmpty()) -1
         else {
-            // syncOffset è già il valore esatto da sommare (senza offset fisso nascosto)
             val adjustedPosition = state.positionMs + syncOffset
             val idx = lines.indexOfLast { it.timestampMs <= adjustedPosition }
-            if (idx == -1) 0 else idx
+            // Se la canzone non ha ancora raggiunto la prima riga di testo, non evidenziare nulla (-1)
+            if (idx == -1) {
+                if (adjustedPosition < (lines.firstOrNull()?.timestampMs ?: 0L)) -1 else 0
+            } else idx
         }
     }
 
@@ -210,8 +219,9 @@ fun LyricsScreen(
                         ),
                         maxLines = 1
                     )
+                    val displayArtist = track.artist.replace(Regex("""[,·-]?\s*(?:19|20)\d{2}\b"""), "").trim().ifEmpty { track.artist }
                     Text(
-                        text = track.artist,
+                        text = displayArtist,
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = Color.White.copy(alpha = 0.55f)
                         ),
@@ -263,21 +273,25 @@ fun LyricsScreen(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { syncOffset -= 500L }) {
+                    IconButton(onClick = { syncOffset -= 250L }) {
                         Icon(imageVector = Icons.Default.Remove, contentDescription = "Ritarda", tint = Color.White.copy(alpha = 0.6f))
                     }
                     Text(
-                        text = "Sync: ${if (syncOffset > 0) "+" else ""}${syncOffset / 1000.0}s",
-                        style = MaterialTheme.typography.labelSmall.copy(color = Color.White.copy(alpha = 0.6f))
+                        text = "Sync: ${if (syncOffset > 0) "+" else ""}${syncOffset / 1000.0}s${if (syncOffset != 0L) " (reset)" else ""}",
+                        style = MaterialTheme.typography.labelSmall.copy(color = if (syncOffset != 0L) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.6f)),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(enabled = syncOffset != 0L) { syncOffset = 0L }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
                     )
-                    IconButton(onClick = { syncOffset += 500L }) {
+                    IconButton(onClick = { syncOffset += 250L }) {
                         Icon(imageVector = Icons.Default.Add, contentDescription = "Anticipa", tint = Color.White.copy(alpha = 0.6f))
                     }
                 }
             }
 
             // Lista Lyrics Karaoke
-            val isLoadingLyrics = lyrics == null && state.currentTrack != null
+            val isLoadingLyrics = isLyricsLoading || (lyrics == null && state.currentTrack != null)
 
             if (isLoadingLyrics) {
                 Box(
@@ -325,6 +339,22 @@ fun LyricsScreen(
                             ),
                             textAlign = TextAlign.Center
                         )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedButton(
+                            onClick = { playerManager.loadLyricsForTrack(track) },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color.White.copy(alpha = 0.85f)
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Riprova", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 }
             } else {

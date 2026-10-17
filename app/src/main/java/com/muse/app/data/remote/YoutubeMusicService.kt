@@ -699,7 +699,9 @@ class YoutubeMusicService(
                             !text.equals("singolo", ignoreCase = true) &&
                             !text.equals("ep", ignoreCase = true) &&
                             !text.equals("e", ignoreCase = true) &&
-                            !text.equals("&", ignoreCase = true)
+                            !text.equals("&", ignoreCase = true) &&
+                            !text.matches(Regex("""\b(19\d\d|20\d\d)\b""")) &&
+                            !text.all { it.isDigit() }
                         ) {
                             artistNames.add(text)
                             if (browseEndpointId != null && artistBrowseId == null) {
@@ -1068,7 +1070,9 @@ class YoutubeMusicService(
                             pageType == "MUSIC_PAGE_TYPE_PLAYLIST" -> { albumName = text }
                             !text.equals("Brano", ignoreCase = true) &&
                             !text.equals("Song", ignoreCase = true) &&
-                            !text.equals("Video", ignoreCase = true) -> {
+                            !text.equals("Video", ignoreCase = true) &&
+                            !text.matches(Regex("""\b(19\d\d|20\d\d)\b""")) &&
+                            !text.all { it.isDigit() } -> {
                                 artistNames.add(text)
                                 if (bId != null && artistBrowseId == null) artistBrowseId = bId
                             }
@@ -1105,7 +1109,6 @@ class YoutubeMusicService(
     }
 
     suspend fun getUpNext(videoId: String, params: String? = null): UpNextResult = withContext(Dispatchers.IO) {
-        android.util.Log.d("MuseChips", "getUpNext CHIAMATO per videoId=$videoId, params=$params")
         try {
             val payloadObj = JsonObject()
             payloadObj.addProperty("videoId", videoId)
@@ -1121,7 +1124,6 @@ class YoutubeMusicService(
             val request = buildInnertubeRequest("next", innerPayload)
             val response = client.newCall(request).execute()
             val rawJson = response.body?.string().orEmpty()
-            android.util.Log.d("MuseChips", "Risposta API: ${rawJson.length} chars")
             if (rawJson.isBlank()) return@withContext UpNextResult()
 
             val root = gson.fromJson(rawJson, JsonObject::class.java)
@@ -1136,14 +1138,6 @@ class YoutubeMusicService(
                 ?.getAsJsonObject("tabRenderer")
                 ?.getAsJsonObject("content")
                 ?.getAsJsonObject("musicQueueRenderer")
-
-            android.util.Log.d("MuseChips", "musicQueueRenderer trovato: ${musicQueueRenderer != null}")
-            if (musicQueueRenderer != null) {
-                android.util.Log.d("MuseChips", "musicQueueRenderer keys: ${musicQueueRenderer.keySet()}")
-                // Log header content per trovare i chip
-                val headerContent = musicQueueRenderer.get("header")
-                android.util.Log.d("MuseChips", "header content (primi 500 chars): ${headerContent.toString().take(500)}")
-            }
 
             if (musicQueueRenderer == null) return@withContext UpNextResult()
 
@@ -1170,6 +1164,7 @@ class YoutubeMusicService(
                 val artistNames = mutableListOf<String>()
                 var albumName: String? = null
                 var artistId: String? = null
+                var yearOrViews: String? = null
 
                 longBylineTextRuns?.forEach { run ->
                     val text = run.asJsonObject.get("text")?.asString.orEmpty().trim()
@@ -1183,10 +1178,19 @@ class YoutubeMusicService(
                     if (text.isNotEmpty() && text != "•" && text != "·") {
                         if (pageType == "MUSIC_PAGE_TYPE_ALBUM") {
                             albumName = text
-                        } else if (pageType == "MUSIC_PAGE_TYPE_ARTIST" || pageType == "MUSIC_PAGE_TYPE_USER_CHANNEL" || (pageType == null && !text.contains("visualizzazioni"))) {
+                        } else if (pageType == "MUSIC_PAGE_TYPE_ARTIST" || pageType == "MUSIC_PAGE_TYPE_USER_CHANNEL") {
                             artistNames.add(text)
                             if (artistId == null && bId != null) {
                                 artistId = bId
+                            }
+                        } else {
+                            if (text.matches(Regex("""\b(19\d\d|20\d\d)\b""")) || text.contains("visualizzazioni", ignoreCase = true) || text.contains("views", ignoreCase = true)) {
+                                yearOrViews = text
+                            } else {
+                                artistNames.add(text)
+                                if (artistId == null && bId != null) {
+                                    artistId = bId
+                                }
                             }
                         }
                     }
@@ -1220,6 +1224,7 @@ class YoutubeMusicService(
                             artistId = artistId,
                             thumbnailUrl = thumb.ifEmpty { buildYoutubeThumbnailUrl(vId) },
                             durationMs = durationMs,
+                            viewsText = yearOrViews,
                             album = albumName
                         )
                     )
@@ -1245,9 +1250,6 @@ class YoutubeMusicService(
                 chipCloudArray = findChipCloudRecursive(musicQueueRenderer)
             }
 
-            android.util.Log.d("MuseChips", "musicQueueRenderer keys: ${musicQueueRenderer.keySet()}")
-            android.util.Log.d("MuseChips", "chipCloud trovato: ${chipCloudArray != null}, size: ${chipCloudArray?.size()}")
-
             chipCloudArray?.forEach { chipObj ->
                 val chipRenderer = chipObj.asJsonObject.getAsJsonObject("chipCloudChipRenderer")
                 if (chipRenderer != null) {
@@ -1267,8 +1269,6 @@ class YoutubeMusicService(
                             ?.getAsJsonObject("fetchParams")
                             ?.get("queueUpdateParams")?.asString
                         ?: navEndpoint?.get("params")?.asString
-
-                    android.util.Log.d("MuseChips", "Chip: '$text', selected: $isSelected, params: $endpointParams")
 
                     if (text.isNotEmpty()) {
                         chips.add(Chip(title = text, endpointParams = endpointParams, isSelected = isSelected))

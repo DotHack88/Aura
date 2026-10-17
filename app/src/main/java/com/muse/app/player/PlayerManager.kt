@@ -64,6 +64,9 @@ class PlayerManager(
     private val _currentLyrics = MutableStateFlow<Lyrics?>(null)
     val currentLyrics: StateFlow<Lyrics?> = _currentLyrics.asStateFlow()
 
+    private val _isLyricsLoading = MutableStateFlow(false)
+    val isLyricsLoading: StateFlow<Boolean> = _isLyricsLoading.asStateFlow()
+
     val equalizerManager = EqualizerManager(context)
 
     val exoPlayer: ExoPlayer = androidx.media3.exoplayer.ExoPlayer.Builder(context)
@@ -116,6 +119,7 @@ class PlayerManager(
     /** Job per il riempimento asincrono della coda radio */
     private var radioRefillJob: Job? = null
     /** True mentre è in corso un fetch di nuovi candidati (evita fetch paralleli) */
+    @Volatile
     private var isRadioRefilling = false
     /** ID del brano seme corrente della radio: l'ultimo brano ascoltato sostanzialmente (>30s) */
     private var radioSeedTrackId: String? = null
@@ -125,6 +129,12 @@ class PlayerManager(
     private var signalReached30s = false
     private var signalReached50pct = false
     private var signalReachedComplete = false
+
+    private fun extractYear(text: String?): Int? {
+        if (text == null) return null
+        val match = Regex("""\b(19\d\d|20\d\d)\b""").find(text)
+        return match?.value?.toIntOrNull()
+    }
 
     /** Tipi di segnale ascolto per il ranking locale */
     private enum class ListenSignal {
@@ -155,8 +165,13 @@ class PlayerManager(
 
     /**
      * Genera nuovi candidati radio a partire da [seedId] e li appende alla playlist corrente,
-     * escludendo i brani già presenti in coda. I candidati vengono ordinati per playCount locale
-     * (proxy di gradimento) con un bonus per gli artisti già ascoltati nella sessione.
+     * escludendo i brani già presenti in coda.
+     * I candidati vengono ordinati tramite algoritmo smart multidimensionale:
+     * - Artista identico o collegato
+     * - Stesso album o progetto discografico
+     * - Prossimità d'anno di pubblicazione (epoca musicale)
+     * - Ponderazione equilibrata della cronologia locale (evita loop di brani identici)
+     * - Jitter di scoperta
      */
     private fun generateRadioQueue(seedId: String, currentPlaylist: List<Track>, params: String? = null, appendTracks: Boolean = true) {
         if (isRadioRefilling) return
@@ -182,17 +197,50 @@ class PlayerManager(
                 }
                 
                 val existingIds = currentPlaylist.map { it.id }.toSet()
+                val currentTrack = _playerState.value.currentTrack
+                val seedArtist = currentTrack?.artist?.trim()?.lowercase()
+                val seedAlbum = currentTrack?.album?.trim()?.lowercase()
+                val seedYear = extractYear(currentTrack?.viewsText) ?: extractYear(currentTrack?.album)
 
-                // Recupera i punteggi dalla history locale per il ranking
+                // Algoritmo di Ranking Smart
                 val scored = candidates
                     .filter { it.id !in existingIds }
                     .map { track ->
-                        val baseScore = musicRepository.getTrackScore(track.id).toFloat()
-                        // Bonus sessione: +3 se l'artista è già nella sessione corrente
-                        val sessionBonus = if (sessionArtists.any {
-                                it.equals(track.artist, ignoreCase = true)
-                            }) 3f else 0f
-                        Pair(track, baseScore + sessionBonus)
+                        var score = 0f
+                        val trackArtist = track.artist.trim().lowercase()
+                        val trackAlbum = track.album?.trim()?.lowercase()
+                        val trackYear = extractYear(track.viewsText) ?: extractYear(track.album)
+
+                        // 1. Somiglianza / Corrispondenza Artista
+                        if (seedArtist != null && (trackArtist == seedArtist || trackArtist.contains(seedArtist) || seedArtist.contains(trackArtist))) {
+                            score += 6.0f
+                        } else if (sessionArtists.any { it.equals(track.artist, ignoreCase = true) }) {
+                            score += 2.5f
+                        }
+
+                        // 2. Corrispondenza Album / Progetto
+                        if (seedAlbum != null && trackAlbum != null && (trackAlbum == seedAlbum || trackAlbum.contains(seedAlbum) || seedAlbum.contains(trackAlbum))) {
+                            score += 4.0f
+                        }
+
+                        // 3. Prossimità d'anno (epoca / decennio affine)
+                        if (seedYear != null && trackYear != null) {
+                            val yearDiff = kotlin.math.abs(seedYear - trackYear)
+                            when {
+                                yearDiff == 0 -> score += 3.5f
+                                yearDiff <= 2 -> score += 2.0f
+                                yearDiff <= 5 -> score += 1.0f
+                            }
+                        }
+
+                        // 4. Storico locale: limitato (max +1.5) per non cannibalizzare la coda
+                        val historyCount = musicRepository.getTrackScore(track.id)
+                        score += (historyCount.coerceAtMost(3) * 0.5f)
+
+                        // 5. Jitter casuale per varietà e non staticità
+                        score += kotlin.random.Random.nextFloat() * 1.5f
+
+                        Pair(track, score)
                     }
                     .sortedByDescending { it.second }
                     .map { it.first }
@@ -941,11 +989,20 @@ class PlayerManager(
         }
     }
 
-    private fun loadLyricsForTrack(track: Track) {
+    fun loadLyricsForTrack(track: Track) {
         lyricsJob?.cancel()
         lyricsJob = scope.launch {
-            val lyrics = lyricsProvider.getLyrics(track.id, track.artist, track.title)
-            _currentLyrics.value = lyrics
+            _isLyricsLoading.value = true
+            _currentLyrics.value = null
+            try {
+                val lyrics = lyricsProvider.getLyrics(track.id, track.artist, track.title)
+                _currentLyrics.value = lyrics ?: Lyrics(trackId = track.id, lines = emptyList())
+            } catch (e: Exception) {
+                Log.e("PlayerManager", "Errore caricamento testi: ${e.message}")
+                _currentLyrics.value = Lyrics(trackId = track.id, lines = emptyList())
+            } finally {
+                _isLyricsLoading.value = false
+            }
         }
     }
 
@@ -1087,7 +1144,7 @@ class PlayerManager(
                         }
                     }
                 }
-                delay(250)
+                delay(100)
             }
         }
     }
@@ -1259,10 +1316,22 @@ class PlayerManager(
             Log.e("PlayerManager", "Raggiunto limite errori consecutivi ($consecutiveErrors). Fermo il playback.")
             _playerState.update { it.copy(errorMessage = "Rete instabile o brani non disponibili. Riproduzione interrotta.") }
         } else {
-            // Cerca di skippare al prossimo brano
-            scope.launch {
-                delay(2000)
-                next()
+            val state = _playerState.value
+            val currentTrack = state.currentTrack
+            val isLiveRadio = state.playlist.size <= 1 || (currentTrack?.durationMs == -1L || currentTrack?.id?.startsWith("http") == true)
+            if (isLiveRadio && currentTrack != null) {
+                // Radio Live / Stream singolo: tenta la riconnessione automatica dello stream anziché avanzare nel vuoto
+                scope.launch {
+                    delay(2500)
+                    Log.d("PlayerManager", "Tentativo di riconnessione automatica alla radio: ${currentTrack.title}")
+                    playTrack(currentTrack, state.playlist)
+                }
+            } else {
+                // Cerca di skippare al prossimo brano
+                scope.launch {
+                    delay(2000)
+                    next()
+                }
             }
         }
     }

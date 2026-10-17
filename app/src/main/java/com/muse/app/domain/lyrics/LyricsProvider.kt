@@ -67,29 +67,42 @@ class DefaultLyricsProvider : LyricsProvider {
     private val gson = Gson()
 
     override suspend fun getLyrics(trackId: String, artist: String, title: String): Lyrics? = withContext(Dispatchers.IO) {
+        val cleanTitle = cleanSongTitle(title)
+        val cleanArtist = cleanArtistName(artist)
+        val primaryArtist = cleanArtist.split(",", "•", "·", "feat.", "ft.", "&").firstOrNull()?.trim().orEmpty()
+
         // 1. Prova fetch diretto con artist + title (endpoint /api/get)
-        val onlineLyrics = fetchFromLrcLib(trackId, artist, title)
+        var onlineLyrics = fetchFromLrcLib(trackId, cleanArtist, cleanTitle)
         if (onlineLyrics != null && onlineLyrics.lines.isNotEmpty()) {
-            Log.d(TAG, "Testo sincronizzato trovato su LRCLIB per $artist - $title (${onlineLyrics.lines.size} righe)")
+            Log.d(TAG, "Testo sincronizzato trovato su LRCLIB per $cleanArtist - $cleanTitle (${onlineLyrics.lines.size} righe)")
             return@withContext onlineLyrics
         }
 
+        // 1b. Se l'artista include collaborazioni o anno pulito, prova con il primaryArtist
+        if (primaryArtist.isNotEmpty() && !primaryArtist.equals(cleanArtist, ignoreCase = true)) {
+            onlineLyrics = fetchFromLrcLib(trackId, primaryArtist, cleanTitle)
+            if (onlineLyrics != null && onlineLyrics.lines.isNotEmpty()) {
+                Log.d(TAG, "Testo sincronizzato trovato su LRCLIB per primary artist $primaryArtist - $cleanTitle")
+                return@withContext onlineLyrics
+            }
+        }
+
         // 2. Fallback: ricerca LRCLIB tramite endpoint /api/search
-        val searchedLyrics = searchFromLrcLib(trackId, artist, title)
+        val searchedLyrics = searchFromLrcLib(trackId, cleanArtist, cleanTitle, primaryArtist)
         if (searchedLyrics != null && searchedLyrics.lines.isNotEmpty()) {
-            Log.d(TAG, "Testo trovato via ricerca LRCLIB per $artist - $title")
+            Log.d(TAG, "Testo trovato via ricerca LRCLIB per $cleanArtist - $cleanTitle")
             return@withContext searchedLyrics
         }
 
         // 3. Fallback locale curato (solo se c'è corrispondenza esatta con ID o titolo pulito)
-        val localLyrics = getLocalCuratedLyrics(trackId, artist, title)
+        val localLyrics = getLocalCuratedLyrics(trackId, cleanArtist, cleanTitle)
         if (localLyrics != null) {
-            Log.d(TAG, "Uso fallback curato locale per $artist - $title")
+            Log.d(TAG, "Uso fallback curato locale per $cleanArtist - $cleanTitle")
             return@withContext localLyrics
         }
 
         // 4. Nessun testo disponibile: restituisci null (la UI mostrerà "Testo non disponibile")
-        Log.d(TAG, "Nessun testo trovato per $artist - $title")
+        Log.d(TAG, "Nessun testo trovato per $cleanArtist - $cleanTitle")
         null
     }
 
@@ -101,13 +114,15 @@ class DefaultLyricsProvider : LyricsProvider {
         resultTrackName: String?,
         resultArtistName: String?,
         expectedTitle: String,
-        expectedArtist: String
+        expectedArtist: String,
+        primaryArtist: String = ""
     ): Double {
         if (resultTrackName.isNullOrBlank()) return 0.0
         val rTitle  = resultTrackName.lowercase().trim()
         val rArtist = resultArtistName?.lowercase()?.trim() ?: ""
         val eTitle  = expectedTitle.lowercase().trim()
         val eArtist = expectedArtist.lowercase().trim()
+        val pArtist = primaryArtist.lowercase().trim()
 
         // Verifica se il titolo atteso è contenuto nel titolo risultato o viceversa
         val titleScore = when {
@@ -126,6 +141,7 @@ class DefaultLyricsProvider : LyricsProvider {
             eArtist.isEmpty()                                   -> 0.5
             rArtist == eArtist                                  -> 1.0
             rArtist.contains(eArtist) || eArtist.contains(rArtist) -> 0.8
+            pArtist.isNotEmpty() && (rArtist.contains(pArtist) || pArtist.contains(rArtist)) -> 0.8
             else -> 0.0
         }
 
@@ -181,10 +197,7 @@ class DefaultLyricsProvider : LyricsProvider {
      * Ricerca LRCLIB tramite endpoint /api/search (fallback se il fetch diretto fallisce).
      * Seleziona il candidato con score più alto (titolo + artista) invece del primo della lista.
      */
-    private fun searchFromLrcLib(trackId: String, artist: String, title: String): Lyrics? {
-        val cleanTitle  = cleanSongTitle(title)
-        val cleanArtist = cleanArtistName(artist)
-
+    private fun searchFromLrcLib(trackId: String, cleanArtist: String, cleanTitle: String, primaryArtist: String = ""): Lyrics? {
         // Estrai possibili parti di titolo se è nel formato "X - Y" o "X: Y"
         val subTitles = if (cleanTitle.contains("-")) {
             cleanTitle.split("-").map { it.trim() }.filter { it.length >= 4 }
@@ -196,7 +209,16 @@ class DefaultLyricsProvider : LyricsProvider {
         if (cleanArtist.isNotEmpty() && !cleanArtist.equals("Artista sconosciuto", ignoreCase = true)) {
             queries.add("$cleanArtist $cleanTitle")
         }
+        if (primaryArtist.isNotEmpty() && !primaryArtist.equals(cleanArtist, ignoreCase = true)) {
+            queries.add("$primaryArtist $cleanTitle")
+        }
         queries.add(cleanTitle)
+        if (cleanArtist.isNotEmpty() && !cleanArtist.equals("Artista sconosciuto", ignoreCase = true)) {
+            queries.add("$cleanTitle $cleanArtist")
+        }
+        if (primaryArtist.isNotEmpty() && !primaryArtist.equals(cleanArtist, ignoreCase = true)) {
+            queries.add("$cleanTitle $primaryArtist")
+        }
         for (sub in subTitles) {
             if (cleanArtist.isNotEmpty() && !cleanArtist.equals("Artista sconosciuto", ignoreCase = true)) {
                 queries.add("$cleanArtist $sub")
@@ -228,7 +250,7 @@ class DefaultLyricsProvider : LyricsProvider {
                     val obj = el.asJsonObject
                     val rTitle  = obj.get("trackName")?.takeIf { !it.isJsonNull }?.asString
                     val rArtist = obj.get("artistName")?.takeIf { !it.isJsonNull }?.asString
-                    val score   = matchScore(rTitle, rArtist, cleanTitle, cleanArtist)
+                    val score   = matchScore(rTitle, rArtist, cleanTitle, cleanArtist, primaryArtist)
                     if (score < 0.5) {
                         Log.d(TAG, "Candidato scartato (score=$score): '$rArtist - $rTitle'")
                         null
@@ -279,6 +301,7 @@ class DefaultLyricsProvider : LyricsProvider {
             .replace(Regex("(?i) - Topic$"), "")
             .replace(Regex("(?i)VEVO$"), "")
             .replace(Regex("(?i)Official$"), "")
+            .replace(Regex("""[,·-]?\s*(?:19|20)\d{2}\b"""), "")
             .trim()
     }
 

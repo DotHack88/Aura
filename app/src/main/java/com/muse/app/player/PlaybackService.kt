@@ -12,6 +12,7 @@ import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.LibraryResult
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.core.app.NotificationCompat
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
@@ -158,18 +159,24 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        val player = mediaLibrarySession?.player
-        if (player != null) {
-            player.pause()
-        }
+        // Se l'utente chiude l'app dal multitasking / background (swipe dei recenti),
+        // arrestiamo la riproduzione, rimuoviamo la notifica foreground e terminiamo il servizio.
+        val playerManager = (application as? MuseApplication)?.playerManager
+        playerManager?.exoPlayer?.stop()
+        mediaLibrarySession?.player?.stop()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        notificationManager?.cancel(NOTIFICATION_ID)
         stopSelf()
     }
 
     override fun onDestroy() {
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        notificationManager?.cancel(NOTIFICATION_ID)
         mediaLibrarySession?.run {
             release()
             mediaLibrarySession = null
