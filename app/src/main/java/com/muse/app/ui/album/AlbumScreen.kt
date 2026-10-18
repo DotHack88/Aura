@@ -35,6 +35,11 @@ import com.muse.app.domain.model.Track
 import com.muse.app.player.PlayerManager
 import com.muse.app.ui.components.DownloadAllFab
 
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.filled.Pause
+import com.muse.app.ui.components.EqualizerBars
+import com.muse.app.ui.components.rememberAccentColor
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlbumScreen(
@@ -52,6 +57,14 @@ fun AlbumScreen(
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     val scope = rememberCoroutineScope()
     
+    val playerState by playerManager.playerState.collectAsState()
+    val currentTrack = playerState.currentTrack
+    val isPlayerPlaying = playerState.isPlaying
+
+    val currentCover = currentTrack?.thumbnailUrl?.ifBlank { albumCoverUrl } ?: albumCoverUrl
+    val rawAccent = rememberAccentColor(currentCover)
+    val highlightColor = if (rawAccent == Color.Transparent) MaterialTheme.colorScheme.primary else rawAccent
+
     val favoriteTracks by musicRepository.getFavoriteTracks().collectAsState(initial = emptyList())
     val favoriteIds = favoriteTracks.map { it.id }.toSet()
 
@@ -174,16 +187,23 @@ fun AlbumScreen(
                                 )
                             }
                             
+                            val isThisAlbumPlaying = isPlayerPlaying && tracks.any { it.id == currentTrack?.id }
                             FloatingActionButton(
-                                onClick = { playerManager.playTrack(tracks.first(), tracks) },
+                                onClick = {
+                                    if (isThisAlbumPlaying) {
+                                        playerManager.togglePlayPause()
+                                    } else {
+                                        playerManager.playTrack(tracks.first(), tracks)
+                                    }
+                                },
                                 containerColor = Color(0xFF6200EE),
                                 contentColor = Color.White,
                                 shape = RoundedCornerShape(50),
                                 modifier = Modifier.size(48.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = "Riproduci tutto",
+                                    imageVector = if (isThisAlbumPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (isThisAlbumPlaying) "Pausa" else "Riproduci tutto",
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
@@ -207,18 +227,35 @@ fun AlbumScreen(
             }
 
             // ---- Track list ----
+            val SpotifyGreen = Color(0xFF1DB954)
             itemsIndexed(tracks) { index, track ->
+                val isCurrent = currentTrack != null && (
+                    currentTrack.id == track.id ||
+                    (currentTrack.title.trim().equals(track.title.trim(), ignoreCase = true) &&
+                     (currentTrack.artist.trim().equals(track.artist.trim(), ignoreCase = true) ||
+                      track.artist.isBlank() ||
+                      albumArtist.contains(currentTrack.artist, ignoreCase = true) ||
+                      currentTrack.artist.contains(albumArtist, ignoreCase = true)))
+                )
+                val isTrackPlaying = isCurrent && isPlayerPlaying
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { playerManager.playTrack(track, tracks) }
+                        .clickable {
+                            if (isCurrent) {
+                                playerManager.togglePlayPause()
+                            } else {
+                                playerManager.playTrack(track, tracks)
+                            }
+                        }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "${index + 1}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.4f),
+                        color = if (isCurrent) SpotifyGreen else Color.White.copy(alpha = 0.4f),
                         modifier = Modifier.width(28.dp)
                     )
                     AsyncImage(
@@ -231,17 +268,28 @@ fun AlbumScreen(
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isCurrent) {
+                                EqualizerBars(
+                                    isPlaying = isTrackPlaying,
+                                    color = SpotifyGreen,
+                                    barWidth = 3.dp,
+                                    maxHeight = 14.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(
+                                text = track.title,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                                    color = if (isCurrent) SpotifyGreen else Color.White
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                         Text(
-                            text = track.title,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.Medium,
-                                color = Color.White
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = track.artist,
+                            text = track.artist.ifBlank { albumArtist },
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = Color.White.copy(alpha = 0.55f)
                             ),

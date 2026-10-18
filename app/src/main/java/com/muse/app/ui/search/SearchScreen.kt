@@ -16,10 +16,12 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.muse.app.ui.components.EqualizerBars
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -792,6 +794,17 @@ fun TrackSearchItem(
     var showMenu by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     
+    val playerState by playerManager?.playerState?.collectAsState() ?: remember { mutableStateOf(null) }
+    val currentTrack = playerState?.currentTrack
+    val isPlayerPlaying = playerState?.isPlaying == true
+    val SpotifyGreen = Color(0xFF1DB954)
+    val isCurrent = currentTrack != null && (
+        currentTrack.id == track.id ||
+        (currentTrack.title.trim().equals(track.title.trim(), ignoreCase = true) &&
+         (currentTrack.artist.trim().equals(track.artist.trim(), ignoreCase = true) || track.artist.isBlank()))
+    )
+    val isTrackPlaying = isCurrent && isPlayerPlaying
+
     val favoriteTracks by musicRepository?.getFavoriteTracks()?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
     val isFavorite = favoriteTracks.any { it.id == track.id }
 
@@ -799,7 +812,13 @@ fun TrackSearchItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .clickable { onClick() }
+            .clickable {
+                if (isCurrent && playerManager != null) {
+                    playerManager.togglePlayPause()
+                } else {
+                    onClick()
+                }
+            }
             .padding(vertical = 6.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -819,13 +838,26 @@ fun TrackSearchItem(
         Spacer(modifier = Modifier.width(14.dp))
 
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = track.title,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isCurrent) {
+                    EqualizerBars(
+                        isPlaying = isTrackPlaying,
+                        color = SpotifyGreen,
+                        barWidth = 3.dp,
+                        maxHeight = 14.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium
+                    ),
+                    color = if (isCurrent) SpotifyGreen else MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Spacer(modifier = Modifier.height(2.dp))
             val metaList = listOfNotNull(track.artist, track.viewsText)
             Text(
@@ -838,11 +870,17 @@ fun TrackSearchItem(
             )
         }
 
-        IconButton(onClick = onClick) {
+        IconButton(onClick = {
+            if (isCurrent && playerManager != null) {
+                playerManager.togglePlayPause()
+            } else {
+                onClick()
+            }
+        }) {
             Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = "Riproduci",
-                tint = MaterialTheme.colorScheme.primary
+                imageVector = if (isTrackPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = if (isTrackPlaying) "Pausa" else "Riproduci",
+                tint = if (isCurrent) SpotifyGreen else MaterialTheme.colorScheme.primary
             )
         }
 

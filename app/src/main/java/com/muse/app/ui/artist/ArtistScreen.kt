@@ -1,6 +1,7 @@
 package com.muse.app.ui.artist
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,9 +12,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.muse.app.ui.components.EqualizerBars
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -275,18 +278,35 @@ fun ArtistTrackRow(
     onClick: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val playerState by playerManager.playerState.collectAsState()
+    val currentTrack = playerState.currentTrack
+    val isPlayerPlaying = playerState.isPlaying
+
+    val SpotifyGreen = Color(0xFF1DB954)
+    val isCurrent = currentTrack != null && (
+        currentTrack.id == track.id ||
+        (currentTrack.title.trim().equals(track.title.trim(), ignoreCase = true) &&
+         (currentTrack.artist.trim().equals(track.artist.trim(), ignoreCase = true) || track.artist.isBlank()))
+    )
+    val isTrackPlaying = isCurrent && isPlayerPlaying
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .clickable {
+                if (isCurrent) {
+                    playerManager.togglePlayPause()
+                } else {
+                    onClick()
+                }
+            }
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = "$index",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            color = if (isCurrent) SpotifyGreen else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
             modifier = Modifier.width(28.dp)
         )
         AsyncImage(
@@ -299,12 +319,24 @@ fun ArtistTrackRow(
         )
         Spacer(modifier = Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = track.title,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isCurrent) {
+                    EqualizerBars(
+                        isPlaying = isTrackPlaying,
+                        color = SpotifyGreen,
+                        barWidth = 3.dp,
+                        maxHeight = 14.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text(
+                    text = track.title,
+                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                    color = if (isCurrent) SpotifyGreen else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             track.viewsText?.let {
                 Text(
                     text = it,
@@ -316,9 +348,9 @@ fun ArtistTrackRow(
             }
         }
         Icon(
-            imageVector = Icons.Default.PlayArrow,
-            contentDescription = "Riproduci",
-            tint = MaterialTheme.colorScheme.primary,
+            imageVector = if (isTrackPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+            contentDescription = if (isTrackPlaying) "Pausa" else "Riproduci",
+            tint = if (isCurrent) SpotifyGreen else MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(20.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))

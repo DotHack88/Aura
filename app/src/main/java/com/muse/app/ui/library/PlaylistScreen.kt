@@ -42,6 +42,8 @@ import com.muse.app.ui.components.MuseThumbnail
 import com.muse.app.ui.components.TrackOptionsBottomSheet
 import com.muse.app.utils.CoverUtils
 import com.muse.app.utils.toHighResThumbnail
+import androidx.compose.foundation.border
+import com.muse.app.ui.components.EqualizerBars
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,6 +61,11 @@ fun PlaylistScreen(
     val context = LocalContext.current
     val playlist by musicRepository.getPlaylistFlow(playlistId).collectAsState(initial = null)
     val tracks by musicRepository.getPlaylistTracks(playlistId).collectAsState(initial = emptyList())
+
+    val playerState by playerManager.playerState.collectAsState()
+    val currentTrack = playerState.currentTrack
+    val isPlayerPlaying = playerState.isPlaying
+    val highlightColor = MaterialTheme.colorScheme.primary
 
     // UI States for Menu & Dialogs
     var showMenu by remember { mutableStateOf(false) }
@@ -281,6 +288,14 @@ fun PlaylistScreen(
                             }
                         )
 
+                        val SpotifyGreen = Color(0xFF1DB954)
+                        val isCurrent = currentTrack != null && (
+                            currentTrack.id == track.id ||
+                            (currentTrack.title.trim().equals(track.title.trim(), ignoreCase = true) &&
+                             (currentTrack.artist.trim().equals(track.artist.trim(), ignoreCase = true) || track.artist.isBlank()))
+                        )
+                        val isTrackPlaying = isCurrent && isPlayerPlaying
+
                         SwipeToDismissBox(
                             state = dismissState,
                             enableDismissFromEndToStart = true,
@@ -316,13 +331,21 @@ fun PlaylistScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { playerManager.playTrack(track, tracks) }
+                                        .clickable {
+                                            if (isCurrent) {
+                                                playerManager.togglePlayPause()
+                                            } else {
+                                                playerManager.playTrack(track, tracks)
+                                            }
+                                        }
                                         .padding(horizontal = 16.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
                                         text = "${index + 1}",
-                                        style = MaterialTheme.typography.bodyMedium.copy(color = Color.Gray),
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            color = if (isCurrent) SpotifyGreen else Color.Gray
+                                        ),
                                         modifier = Modifier.width(32.dp),
                                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                     )
@@ -333,12 +356,26 @@ fun PlaylistScreen(
                                     )
                                     Spacer(modifier = Modifier.width(16.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = track.title,
-                                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (isCurrent) {
+                                                EqualizerBars(
+                                                    isPlaying = isTrackPlaying,
+                                                    color = SpotifyGreen,
+                                                    barWidth = 3.dp,
+                                                    maxHeight = 14.dp
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                            }
+                                            Text(
+                                                text = track.title,
+                                                style = MaterialTheme.typography.bodyLarge.copy(
+                                                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium
+                                                ),
+                                                color = if (isCurrent) SpotifyGreen else MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                         Text(
                                             text = track.artist,
                                             style = MaterialTheme.typography.bodyMedium.copy(color = Color.Gray),
