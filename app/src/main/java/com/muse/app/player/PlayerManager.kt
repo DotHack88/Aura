@@ -9,7 +9,9 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
 import android.os.PowerManager
+import android.net.wifi.WifiManager
 import android.util.Log
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -34,6 +36,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import android.content.ComponentName
 import androidx.core.content.ContextCompat
 import androidx.media3.session.MediaController
@@ -53,10 +56,40 @@ class PlayerManager(
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 ) : Player.Listener {
 
-    // WakeLock parziale: mantiene la CPU attiva durante l'estrazione dello stream rete.
-    // Viene acquisito all'inizio di extractJob e rilasciato appena ExoPlayer è pronto.
+    // WakeLock parziale e WifiLock: mantengono CPU e Wi-Fi attivi ad alte prestazioni
+    // anche a schermo spento, impedendo cadute di connessione e blocchi tra un brano e l'altro.
     private val wakeLock: PowerManager.WakeLock = (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
         .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Muse::StreamExtractionWakeLock")
+
+    private val wifiLock: WifiManager.WifiLock = (context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
+        .createWifiLock(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            },
+            "Muse::PlaybackWifiLock"
+        ).apply { setReferenceCounted(false) }
+
+    fun acquireWakeAndWifiLocks(timeoutMs: Long = 45_000L) {
+        try {
+            if (!wakeLock.isHeld) wakeLock.acquire(timeoutMs)
+            if (!wifiLock.isHeld) wifiLock.acquire()
+            Log.d("PlayerManager", "WakeLock e WifiLock acquisiti (timeout ${timeoutMs}ms)")
+        } catch (e: Exception) {
+            Log.w("PlayerManager", "Errore acquisizione locks: ${e.message}")
+        }
+    }
+
+    fun releaseWakeAndWifiLocks() {
+        try {
+            if (wakeLock.isHeld) wakeLock.release()
+            if (wifiLock.isHeld) wifiLock.release()
+            Log.d("PlayerManager", "WakeLock e WifiLock rilasciati")
+        } catch (e: Exception) {
+            Log.w("PlayerManager", "Errore rilascio locks: ${e.message}")
+        }
+    }
 
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
@@ -70,6 +103,14 @@ class PlayerManager(
     val equalizerManager = EqualizerManager(context)
 
     val exoPlayer: ExoPlayer = androidx.media3.exoplayer.ExoPlayer.Builder(context)
+        .setWakeMode(C.WAKE_MODE_NETWORK)
+        .setAudioAttributes(
+            androidx.media3.common.AudioAttributes.Builder()
+                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                .setUsage(C.USAGE_MEDIA)
+                .build(),
+            /* handleAudioFocus = */ true
+        )
         .setMediaSourceFactory(
             androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
                 androidx.media3.datasource.DefaultDataSource.Factory(
@@ -95,8 +136,8 @@ class PlayerManager(
                 ).build()
         )
         .build().apply {
-        addListener(this@PlayerManager)
-    }
+            addListener(this@PlayerManager)
+        }
 
     private var progressTickerJob: Job? = null
     private var extractJob: Job? = null
@@ -114,6 +155,30 @@ class PlayerManager(
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var mediaController: MediaController? = null
         private set
+
+    // ─── Prefetch Stream per transizioni a schermo spento ────────────────────
+    private var prefetchJob: Job? = null
+    private var prefetchedTrackId: String? = null
+
+    private fun prefetchNextTrack(nextTrack: Track) {
+        if (prefetchedTrackId == nextTrack.id) return
+        prefetchedTrackId = nextTrack.id
+        prefetchJob?.cancel()
+        prefetchJob = scope.launch {
+            try {
+                Log.d("PlayerManager", "Pre-fetching audio stream e cover per prossimo brano: ${nextTrack.title} (${nextTrack.id})")
+                NewPipeStreamExtractor.getAudioStreamUrl(nextTrack.id)
+                val imageRequest = ImageRequest.Builder(context)
+                    .data(nextTrack.thumbnailUrl)
+                    .size(512, 512)
+                    .allowHardware(false)
+                    .build()
+                Coil.imageLoader(context).enqueue(imageRequest)
+            } catch (e: Exception) {
+                Log.w("PlayerManager", "Errore durante il prefetch del prossimo brano: ${e.message}")
+            }
+        }
+    }
 
     // ─── Muse Radio Engine ────────────────────────────────────────────────────
     /** Job per il riempimento asincrono della coda radio */
@@ -409,6 +474,10 @@ class PlayerManager(
     }
 
     fun playTrack(track: Track, playlist: List<Track> = listOf(track), startPositionMs: Long = 0L) {
+        // Acquisisci WakeLock e WifiLock all'inizio del cambio brano: previene sleep della CPU e drop Wi-Fi a schermo spento
+        acquireWakeAndWifiLocks(45_000L)
+        prefetchedTrackId = null
+
         val index = playlist.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
         // Ogni nuovo brano avviato esplicitamente resetta il contatore errori
         if (startPositionMs == 0L) {
@@ -507,10 +576,8 @@ class PlayerManager(
             }
 
             // 2. Nessun file locale → estrai da YouTube con retry.
-            // Acquisisce il WakeLock per mantenere la CPU attiva durante il fetch di rete
-            // in background/lockscreen (senza di esso Android può sospendere il processo
-            // proprio mentre NewPipe estrae l'URL dello stream).
-            if (!wakeLock.isHeld) wakeLock.acquire(30_000L) // timeout massimo 30s
+            // Rinforza il WakeLock e WifiLock per tutta la durata del fetch e del buffering
+            acquireWakeAndWifiLocks(45_000L)
 
             var streamUrl: String? = null
 
@@ -542,14 +609,12 @@ class PlayerManager(
                             Log.e("PlayerManager", "Eccezione al tentativo $attempts per ${track.id}", e)
                         }
                         if (streamUrl == null && attempts < maxAttempts) {
-                            delay(1500)
+                            delay(1000)
                         }
                     }
                 }
-            } finally {
-                // Rilascia il WakeLock non appena l'URL è stato risolto (o fallito).
-                // ExoPlayer gestisce il proprio WakeLock internamente durante il buffering.
-                if (wakeLock.isHeld) wakeLock.release()
+            } catch (e: Exception) {
+                Log.e("PlayerManager", "Errore estrazione stream per ${track.id}: ${e.message}")
             }
 
             if (streamUrl != null) {
@@ -572,6 +637,7 @@ class PlayerManager(
                     switchToVideoMode()
                 }
             } else {
+                releaseWakeAndWifiLocks()
                 Log.e("PlayerManager", "Stream non ottenuto per ${track.id}. Skip.")
                 withContext(Dispatchers.Main) { 
                     _playerState.update { it.copy(isLoading = false) }
@@ -713,33 +779,36 @@ class PlayerManager(
     private suspend fun createMediaItem(url: String, track: Track): MediaItem {
         var artworkData: ByteArray? = null
         try {
-            val request = ImageRequest.Builder(context)
-                .data(track.thumbnailUrl)
-                .size(512, 512)
-                .allowHardware(false)
-                .build()
-            val result = Coil.imageLoader(context).execute(request)
-            if (result is SuccessResult) {
-                val drawable = result.drawable
-                val bitmap = if (drawable is android.graphics.drawable.BitmapDrawable) {
-                    drawable.bitmap
-                } else {
-                    val b = android.graphics.Bitmap.createBitmap(
-                        drawable.intrinsicWidth.coerceAtLeast(1),
-                        drawable.intrinsicHeight.coerceAtLeast(1),
-                        android.graphics.Bitmap.Config.ARGB_8888
-                    )
-                    val canvas = android.graphics.Canvas(b)
-                    drawable.setBounds(0, 0, canvas.width, canvas.height)
-                    drawable.draw(canvas)
-                    b
+            // Non bloccare mai il playback o l'avvio a schermo spento se Coil è lento
+            withTimeoutOrNull(2500L) {
+                val request = ImageRequest.Builder(context)
+                    .data(track.thumbnailUrl)
+                    .size(512, 512)
+                    .allowHardware(false)
+                    .build()
+                val result = Coil.imageLoader(context).execute(request)
+                if (result is SuccessResult) {
+                    val drawable = result.drawable
+                    val bitmap = if (drawable is android.graphics.drawable.BitmapDrawable) {
+                        drawable.bitmap
+                    } else {
+                        val b = android.graphics.Bitmap.createBitmap(
+                            drawable.intrinsicWidth.coerceAtLeast(1),
+                            drawable.intrinsicHeight.coerceAtLeast(1),
+                            android.graphics.Bitmap.Config.ARGB_8888
+                        )
+                        val canvas = android.graphics.Canvas(b)
+                        drawable.setBounds(0, 0, canvas.width, canvas.height)
+                        drawable.draw(canvas)
+                        b
+                    }
+                    val stream = java.io.ByteArrayOutputStream()
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, stream)
+                    artworkData = stream.toByteArray()
                 }
-                val stream = java.io.ByteArrayOutputStream()
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, stream)
-                artworkData = stream.toByteArray()
             }
         } catch (e: Exception) {
-            Log.e("PlayerManager", "Errore download artwork per notifica", e)
+            Log.e("PlayerManager", "Errore download artwork per notifica: ${e.message}")
         }
 
         val metadataBuilder = androidx.media3.common.MediaMetadata.Builder()
@@ -1112,8 +1181,24 @@ class PlayerManager(
                         }
                     }
 
-                    // === CROSSFADE: pre-avvio del prossimo brano ===
+                    // === PREFETCH: pre-estrazione stream e cover del prossimo brano negli ultimi 35 secondi ===
                     val state = _playerState.value
+                    val nextIdx = if (state.shuffle && state.playlist.size > 1) {
+                        -1
+                    } else {
+                        state.currentIndex + 1
+                    }
+                    val nextTrack = if (nextIdx in state.playlist.indices) {
+                        state.playlist[nextIdx]
+                    } else if (state.repeat == RepeatMode.ALL && state.playlist.isNotEmpty()) {
+                        state.playlist.first()
+                    } else null
+
+                    if (nextTrack != null && duration > 0 && (duration - currentPos) in 1000L..35_000L) {
+                        prefetchNextTrack(nextTrack)
+                    }
+
+                    // === CROSSFADE: pre-avvio del prossimo brano ===
                     val crossfadeMs = state.crossfadeDurationMs
                     val trackId = state.currentTrack?.id
                     if (crossfadeMs > 0 && duration > 0 && !state.isVideoMode &&
@@ -1169,6 +1254,8 @@ class PlayerManager(
             if (isHandlingEnd) return
             isHandlingEnd = true
             isNaturalEnd = true
+            // Acquisizione immediata dei lock: evita sospensione CPU o disconnessione Wi-Fi a schermo spento
+            acquireWakeAndWifiLocks(60_000L)
             val state = _playerState.value
 
             // ── Muse Radio: segnale COMPLETED sul brano corrente ──
@@ -1210,6 +1297,7 @@ class PlayerManager(
                             next()
                         } else {
                             // Ultimo brano — reset stato senza mostrare errori
+                            releaseWakeAndWifiLocks()
                             withContext(Dispatchers.Main) {
                                 _playerState.update { it.copy(isPlaying = false, positionMs = 0L) }
                             }
@@ -1225,10 +1313,11 @@ class PlayerManager(
         }
         
         if (playbackState == Player.STATE_READY) {
-            // Riproduzione avviata con successo — reset contatore errori
+            // Riproduzione avviata con successo — reset contatore errori e rilascio lock temporaneo
             consecutiveErrors = 0
             isNaturalEnd = false
             _playerState.update { it.copy(isLoading = false) }
+            releaseWakeAndWifiLocks()
         } else if (playbackState == Player.STATE_BUFFERING) {
             _playerState.update { it.copy(isLoading = true) }
         }
@@ -1251,18 +1340,21 @@ class PlayerManager(
         // se c'è un errore negli ultimi 5 secondi, consideriamo il brano come terminato normalmente
         if (duration > 0 && pos >= duration - 5000) {
             Log.w("PlayerManager", "Errore vicino alla fine del brano, forzo il passaggio al successivo")
+            acquireWakeAndWifiLocks(45_000L)
             next()
             return
         }
 
         val currentTrack = _playerState.value.currentTrack
-        if (pos > 0 && currentTrack != null && consecutiveErrors < 2) {
-            Log.d("PlayerManager", "Tentativo di ripristino della traccia da $pos ms")
+        if (currentTrack != null && consecutiveErrors < 3) {
+            Log.d("PlayerManager", "Tentativo di ripristino della traccia (${consecutiveErrors + 1}/3) da $pos ms")
             consecutiveErrors++
+            acquireWakeAndWifiLocks(45_000L)
             playTrack(currentTrack, _playerState.value.playlist, pos)
             return
         }
 
+        releaseWakeAndWifiLocks()
         handlePlaybackError("Errore di riproduzione: verifica la tua connessione.")
     }
 

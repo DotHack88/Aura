@@ -133,11 +133,9 @@ fun AppNavigation(
                     label = "navAccent"
                 )
 
-                if (currentRoute?.startsWith("album/") == false &&
-                    currentRoute?.startsWith("artist/") == false &&
-                    currentRoute?.startsWith("playlist/") == false &&
-                    currentRoute?.startsWith("player") == false
-                ) {
+                val isBottomNavVisible = currentRoute?.startsWith("player") == false
+
+                if (isBottomNavVisible) {
                     NavigationBar(
                         containerColor = Color.Transparent,
                         modifier = Modifier.background(
@@ -196,10 +194,7 @@ fun AppNavigation(
         ) { innerPadding ->
             // Calcola l'altezza della NavigationBar per posizionare il MiniPlayer sopra di essa
             val navBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            val bottomBarHeight = if (currentRoute?.startsWith("album/") == false &&
-                currentRoute?.startsWith("artist/") == false &&
-                currentRoute?.startsWith("playlist/") == false &&
-                currentRoute?.startsWith("player") == false) {
+            val bottomBarHeight = if (currentRoute?.startsWith("player") == false) {
                 80.dp + navBarHeight // altezza NavigationBar standard + inset sistema
             } else {
                 navBarHeight
@@ -418,6 +413,11 @@ fun AppNavigation(
                             onBack = { navController.popBackStack() },
                             onNavigateToSearch = { query ->
                                 navController.navigate("${Screen.Search.route}?query=${java.net.URLEncoder.encode(query, "UTF-8")}")
+                            },
+                            onNavigateToAlbum = { bId, aTitle, aArtist, aCover ->
+                                navController.navigate(
+                                    "album/${java.net.URLEncoder.encode(bId, "UTF-8")}?title=${java.net.URLEncoder.encode(aTitle, "UTF-8")}&artist=${java.net.URLEncoder.encode(aArtist, "UTF-8")}&cover=${java.net.URLEncoder.encode(aCover, "UTF-8")}"
+                                )
                             }
                         )
                     }

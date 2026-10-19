@@ -68,6 +68,22 @@ data class Album(
     val browseId: String? = null
 )
 
+data class AlbumSection(
+    val title: String,
+    val items: List<Album>
+)
+
+data class AlbumPage(
+    val title: String = "",
+    val artist: String = "",
+    val coverUrl: String = "",
+    val year: String? = null,
+    val type: String = "Album",
+    val tracks: List<Track> = emptyList(),
+    val otherVersions: List<Album> = emptyList(),
+    val relatedSections: List<AlbumSection> = emptyList()
+)
+
 data class Playlist(
     val id: String,
     val name: String,

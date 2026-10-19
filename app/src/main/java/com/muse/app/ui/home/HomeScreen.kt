@@ -71,6 +71,7 @@ fun HomeScreen(
     val newReleases = remember { musicRepository.getNewReleases() }
     var suggestedTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
     var trendingTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
+    var releasesForYou by remember { mutableStateOf<List<Album>>(emptyList()) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     val totalTimeMs by musicRepository.getTotalListeningTimeMs().collectAsState(initial = 0L)
     val topTracks by musicRepository.getTopPlayedTracks(1).collectAsState(initial = emptyList())
@@ -85,6 +86,7 @@ fun HomeScreen(
         quickPicks = musicRepository.getQuickPicks()
         suggestedTracks = musicRepository.searchTracks("Canzoni italiane $year")
         trendingTracks = musicRepository.searchTracks("Nuove canzoni italiane $month $year")
+        releasesForYou = musicRepository.fetchNewReleases()
     }
 
     LazyColumn(
@@ -234,7 +236,20 @@ fun HomeScreen(
             )
         }
 
-
+        // 2. SEZIONE USCITE PER TE
+        if (releasesForYou.isNotEmpty()) {
+            item {
+                NewReleasesSection(
+                    albums = releasesForYou,
+                    sectionStrapline = "BASATE SUI TUOI ASCOLTI",
+                    sectionTitle = "Uscite per te",
+                    onAlbumClick = { album ->
+                        onNavigateToAlbum(album.browseId.orEmpty(), album.title, album.artist, album.coverUrl)
+                    },
+                    onNavigateToNewReleases = onNavigateToNewReleases
+                )
+            }
+        }
 
         // 3. SEZIONE ASCOLTATI DI RECENTE (Se presenti)
         if (recentTracks.isNotEmpty()) {
@@ -752,7 +767,9 @@ fun StandardMusicCard(
 fun NewReleasesSection(
     albums: List<Album>,
     onAlbumClick: (Album) -> Unit,
-    onNavigateToNewReleases: () -> Unit = {}
+    onNavigateToNewReleases: () -> Unit = {},
+    sectionStrapline: String = "NOVITÀ",
+    sectionTitle: String = "Nuove uscite"
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // Header
@@ -765,7 +782,7 @@ fun NewReleasesSection(
         ) {
             Column {
                 Text(
-                    text = "NOVITÀ",
+                    text = sectionStrapline,
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = Color(0xFFAAAAAA),
                         fontWeight = FontWeight.Bold,
@@ -774,7 +791,7 @@ fun NewReleasesSection(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Nuove uscite",
+                    text = sectionTitle,
                     style = MaterialTheme.typography.titleLarge.copy(
                         fontWeight = FontWeight.Bold,
                         color = Color.White

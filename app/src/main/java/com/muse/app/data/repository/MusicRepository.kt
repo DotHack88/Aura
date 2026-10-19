@@ -100,6 +100,10 @@ class MusicRepository(
         return youtubeMusicService.getAlbumTracks(browseId, albumTitle, artistName, coverUrl)
     }
 
+    suspend fun getAlbumPage(browseId: String, albumTitle: String, artistName: String, coverUrl: String): com.muse.app.domain.model.AlbumPage {
+        return youtubeMusicService.getAlbumPage(browseId, albumTitle, artistName, coverUrl)
+    }
+
     suspend fun searchAlbums(query: String): List<Album> {
         return youtubeMusicService.searchAlbums(query)
     }

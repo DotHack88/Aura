@@ -166,6 +166,23 @@ fun SearchScreen(
         return null
     }
 
+    fun extractYoutubePlaylistOrAlbumId(input: String): String? {
+        val patterns = listOf(
+            Regex("""[?&]list=([a-zA-Z0-9_-]+)"""),
+            Regex("""browse/(MPREb_[a-zA-Z0-9_-]+)"""),
+            Regex("""playlist/([a-zA-Z0-9_-]+)""")
+        )
+        for (p in patterns) {
+            val match = p.find(input)
+            if (match != null) return match.groupValues[1]
+        }
+        val clean = input.trim()
+        if (clean.startsWith("OLAK") || clean.startsWith("VLOLAK") || clean.startsWith("MPREb_")) {
+            return clean
+        }
+        return null
+    }
+
     fun onQueryChange(newQuery: String) {
         query = newQuery
         albumSearchResults = null
@@ -181,9 +198,32 @@ fun SearchScreen(
             delay(350)
             isLoading = true
 
-            // Controlla se è un URL di YouTube/YouTube Music o un videoId diretto
-            val videoId = extractYoutubeVideoId(newQuery.trim())
-            if (videoId != null) {
+            val trimmed = newQuery.trim()
+            val albumOrPlaylistId = extractYoutubePlaylistOrAlbumId(trimmed)
+            val videoId = extractYoutubeVideoId(trimmed)
+
+            if (albumOrPlaylistId != null && (albumOrPlaylistId.startsWith("OLAK") || albumOrPlaylistId.startsWith("VLOLAK") || albumOrPlaylistId.startsWith("MPREb_"))) {
+                val page = musicRepository.getAlbumPage(albumOrPlaylistId, "", "", "")
+                if (page.tracks.isNotEmpty()) {
+                    val albumItem = com.muse.app.domain.model.Album(
+                        id = albumOrPlaylistId,
+                        title = page.title.ifBlank { "Album" },
+                        artist = page.artist.ifBlank { "Artista" },
+                        coverUrl = page.coverUrl.ifBlank { page.tracks.firstOrNull()?.thumbnailUrl.orEmpty() },
+                        year = page.year,
+                        type = page.type,
+                        browseId = albumOrPlaylistId
+                    )
+                    searchResult = SearchResult(
+                        albums = listOf(albumItem),
+                        popularTracks = page.tracks.take(5),
+                        allTracks = page.tracks
+                    )
+                    albumSearchResults = listOf(albumItem)
+                } else {
+                    searchResult = SearchResult()
+                }
+            } else if (videoId != null) {
                 val track = musicRepository.getTrackByVideoId(videoId)
                 searchResult = if (track != null) {
                     SearchResult(allTracks = listOf(track), popularTracks = listOf(track))
@@ -326,8 +366,9 @@ fun SearchScreen(
                                             AlbumSearchCard(
                                                 album = album,
                                                 onClick = {
-                                                    album.browseId?.let { browseId ->
-                                                        onNavigateToAlbum?.invoke(browseId, album.title, album.artist, album.coverUrl)
+                                                    val bId = (album.browseId ?: album.id)
+                                                    if (bId.isNotBlank()) {
+                                                        onNavigateToAlbum?.invoke(bId, album.title, album.artist, album.coverUrl)
                                                     }
                                                 }
                                             )
@@ -358,8 +399,9 @@ fun SearchScreen(
                                             AlbumSearchCard(
                                                 album = single,
                                                 onClick = {
-                                                    single.browseId?.let { browseId ->
-                                                        onNavigateToAlbum?.invoke(browseId, single.title, single.artist, single.coverUrl)
+                                                    val bId = (single.browseId ?: single.id)
+                                                    if (bId.isNotBlank()) {
+                                                        onNavigateToAlbum?.invoke(bId, single.title, single.artist, single.coverUrl)
                                                     }
                                                 }
                                             )
@@ -472,8 +514,9 @@ fun SearchScreen(
                                     AlbumSearchCard(
                                         album = album,
                                         onClick = {
-                                            album.browseId?.let { browseId ->
-                                                onNavigateToAlbum?.invoke(browseId, album.title, album.artist, album.coverUrl)
+                                            val bId = (album.browseId ?: album.id)
+                                            if (bId.isNotBlank()) {
+                                                onNavigateToAlbum?.invoke(bId, album.title, album.artist, album.coverUrl)
                                             }
                                         }
                                     )
@@ -495,8 +538,9 @@ fun SearchScreen(
                                     AlbumSearchCard(
                                         album = album,
                                         onClick = {
-                                            album.browseId?.let { browseId ->
-                                                onNavigateToAlbum?.invoke(browseId, album.title, album.artist, album.coverUrl)
+                                            val bId = (album.browseId ?: album.id)
+                                            if (bId.isNotBlank()) {
+                                                onNavigateToAlbum?.invoke(bId, album.title, album.artist, album.coverUrl)
                                             }
                                         }
                                     )

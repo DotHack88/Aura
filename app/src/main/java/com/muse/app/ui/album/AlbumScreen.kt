@@ -6,7 +6,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import com.muse.app.domain.model.AlbumSection
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -40,6 +43,10 @@ import androidx.compose.material.icons.filled.Pause
 import com.muse.app.ui.components.EqualizerBars
 import com.muse.app.ui.components.rememberAccentColor
 
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import com.muse.app.domain.model.Album
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlbumScreen(
@@ -50,10 +57,18 @@ fun AlbumScreen(
     musicRepository: MusicRepository,
     playerManager: PlayerManager,
     onBack: () -> Unit,
-    onNavigateToSearch: (String) -> Unit = {}
+    onNavigateToSearch: (String) -> Unit = {},
+    onNavigateToAlbum: (browseId: String, title: String, artist: String, cover: String) -> Unit = { _, _, _, _ -> }
 ) {
-    var tracks by remember { mutableStateOf<List<Track>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    var currentTitle by remember(browseId, albumTitle) { mutableStateOf(albumTitle) }
+    var currentArtist by remember(browseId, albumArtist) { mutableStateOf(albumArtist) }
+    var currentCoverUrl by remember(browseId, albumCoverUrl) { mutableStateOf(albumCoverUrl) }
+    var currentYear by remember(browseId) { mutableStateOf<String?>(null) }
+    var currentType by remember(browseId) { mutableStateOf("Album") }
+    var tracks by remember(browseId) { mutableStateOf<List<Track>>(emptyList()) }
+    var otherVersions by remember(browseId) { mutableStateOf<List<Album>>(emptyList()) }
+    var relatedSections by remember(browseId) { mutableStateOf<List<AlbumSection>>(emptyList()) }
+    var isLoading by remember(browseId) { mutableStateOf(true) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     val scope = rememberCoroutineScope()
     
@@ -61,7 +76,7 @@ fun AlbumScreen(
     val currentTrack = playerState.currentTrack
     val isPlayerPlaying = playerState.isPlaying
 
-    val currentCover = currentTrack?.thumbnailUrl?.ifBlank { albumCoverUrl } ?: albumCoverUrl
+    val currentCover = currentTrack?.thumbnailUrl?.ifBlank { currentCoverUrl } ?: currentCoverUrl
     val rawAccent = rememberAccentColor(currentCover)
     val highlightColor = if (rawAccent == Color.Transparent) MaterialTheme.colorScheme.primary else rawAccent
 
@@ -70,7 +85,15 @@ fun AlbumScreen(
 
     LaunchedEffect(browseId) {
         isLoading = true
-        tracks = musicRepository.getAlbumTracks(browseId, albumTitle, albumArtist, albumCoverUrl)
+        val page = musicRepository.getAlbumPage(browseId, currentTitle, currentArtist, currentCoverUrl)
+        tracks = page.tracks
+        otherVersions = page.otherVersions
+        relatedSections = page.relatedSections
+        if (page.title.isNotBlank()) currentTitle = page.title
+        if (page.artist.isNotBlank()) currentArtist = page.artist
+        if (page.coverUrl.isNotBlank()) currentCoverUrl = page.coverUrl
+        if (page.year != null) currentYear = page.year
+        if (page.type.isNotBlank()) currentType = page.type
         isLoading = false
     }
 
@@ -81,7 +104,7 @@ fun AlbumScreen(
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 120.dp)
+            contentPadding = PaddingValues(bottom = 200.dp)
         ) {
             // ---- Hero Cover ----
             item {
@@ -91,8 +114,8 @@ fun AlbumScreen(
                         .height(300.dp)
                 ) {
                     AsyncImage(
-                        model = albumCoverUrl,
-                        contentDescription = albumTitle,
+                        model = currentCoverUrl,
+                        contentDescription = currentTitle,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
@@ -127,7 +150,7 @@ fun AlbumScreen(
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
                         Text(
-                            text = albumTitle,
+                            text = currentTitle,
                             style = MaterialTheme.typography.headlineMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -135,12 +158,15 @@ fun AlbumScreen(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Text(
-                            text = albumArtist,
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                color = Color.White.copy(alpha = 0.75f)
+                        val subtitle = listOfNotNull(currentArtist.ifBlank { null }, currentYear).joinToString(" • ")
+                        if (subtitle.isNotBlank()) {
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    color = Color.White.copy(alpha = 0.75f)
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
@@ -234,8 +260,8 @@ fun AlbumScreen(
                     (currentTrack.title.trim().equals(track.title.trim(), ignoreCase = true) &&
                      (currentTrack.artist.trim().equals(track.artist.trim(), ignoreCase = true) ||
                       track.artist.isBlank() ||
-                      albumArtist.contains(currentTrack.artist, ignoreCase = true) ||
-                      currentTrack.artist.contains(albumArtist, ignoreCase = true)))
+                      currentArtist.contains(currentTrack.artist, ignoreCase = true) ||
+                      currentTrack.artist.contains(currentArtist, ignoreCase = true)))
                 )
                 val isTrackPlaying = isCurrent && isPlayerPlaying
 
@@ -259,7 +285,7 @@ fun AlbumScreen(
                         modifier = Modifier.width(28.dp)
                     )
                     AsyncImage(
-                        model = track.thumbnailUrl.ifBlank { albumCoverUrl },
+                        model = track.thumbnailUrl.ifBlank { currentCoverUrl },
                         contentDescription = track.title,
                         modifier = Modifier
                             .size(48.dp)
@@ -289,7 +315,7 @@ fun AlbumScreen(
                             )
                         }
                         Text(
-                            text = track.artist.ifBlank { albumArtist },
+                            text = track.artist.ifBlank { currentArtist },
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = Color.White.copy(alpha = 0.55f)
                             ),
@@ -322,6 +348,75 @@ fun AlbumScreen(
                     thickness = 0.5.dp
                 )
             }
+
+            // ---- Sezioni Correlate (es. "Altre versioni", "Uscite per te", ecc.) ----
+            if (!isLoading && relatedSections.isNotEmpty()) {
+                items(relatedSections) { section ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 28.dp, bottom = 12.dp)
+                    ) {
+                        Text(
+                            text = section.title,
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            ),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            items(section.items) { itemAlbum ->
+                                AlbumVersionCard(
+                                    album = itemAlbum,
+                                    onOpenAlbum = {
+                                        val bId = itemAlbum.browseId ?: itemAlbum.id
+                                        if (bId.isNotBlank()) {
+                                            onNavigateToAlbum(bId, itemAlbum.title, itemAlbum.artist, itemAlbum.coverUrl)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if (!isLoading && otherVersions.isNotEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 28.dp, bottom = 12.dp)
+                    ) {
+                        Text(
+                            text = "Altre versioni",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            ),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            items(otherVersions) { otherAlbum ->
+                                AlbumVersionCard(
+                                    album = otherAlbum,
+                                    onOpenAlbum = {
+                                        val bId = otherAlbum.browseId ?: otherAlbum.id
+                                        if (bId.isNotBlank()) {
+                                            onNavigateToAlbum(bId, otherAlbum.title, otherAlbum.artist, otherAlbum.coverUrl)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -334,5 +429,74 @@ fun AlbumScreen(
             onNavigateToSearch = onNavigateToSearch,
             onNavigateToAlbum = null // Siamo già nell'album, nascondiamo il pulsante
         )
+    }
+}
+
+@Composable
+fun AlbumVersionCard(
+    album: Album,
+    onOpenAlbum: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .width(148.dp)
+            .clickable { onOpenAlbum() }
+    ) {
+        Box(
+            modifier = Modifier
+                .size(148.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF1E1E1E))
+        ) {
+            AsyncImage(
+                model = album.coverUrl,
+                contentDescription = album.title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            if (album.type.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .background(
+                            color = Color.Black.copy(alpha = 0.75f),
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = album.type.uppercase(),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp
+                        )
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = album.title,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White
+            ),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        val subtitle = listOfNotNull(album.artist.ifBlank { null }, album.year).joinToString(" • ")
+        if (subtitle.isNotBlank()) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = Color.White.copy(alpha = 0.6f)
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }

@@ -4,6 +4,8 @@ import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.muse.app.domain.model.Album
+import com.muse.app.domain.model.AlbumPage
+import com.muse.app.domain.model.AlbumSection
 import com.muse.app.domain.model.Artist
 import com.muse.app.domain.model.ArtistDetails
 import com.muse.app.domain.model.Chip
@@ -279,26 +281,111 @@ class YoutubeMusicService(
 
 
 
-    suspend fun getAlbumTracks(browseId: String, albumTitle: String, artistName: String, coverUrl: String): List<Track> = withContext(Dispatchers.IO) {
-        try {
-            val payload = "\"browseId\": \"$browseId\""
-            val request = buildInnertubeRequest("browse", payload)
+    suspend fun getAlbumTracks(browseId: String, albumTitle: String, artistName: String, coverUrl: String): List<Track> {
+        return getAlbumPage(browseId, albumTitle, artistName, coverUrl).tracks
+    }
 
+    suspend fun getAlbumPage(browseId: String, albumTitle: String, artistName: String, coverUrl: String): AlbumPage = withContext(Dispatchers.IO) {
+        try {
+            var targetBrowseId = browseId.trim()
+            if (targetBrowseId.startsWith("OLAK") || targetBrowseId.startsWith("PL")) {
+                targetBrowseId = "VL$targetBrowseId"
+            }
+
+            val request = buildInnertubeRequest("browse", "\"browseId\": \"$targetBrowseId\"")
             val response = client.newCall(request).execute()
-            val rawJson = response.body?.string().orEmpty()
-            if (rawJson.isBlank()) return@withContext emptyList()
+            var rawJson = response.body?.string().orEmpty()
+            if (rawJson.isBlank()) return@withContext AlbumPage(title = albumTitle, artist = artistName, coverUrl = coverUrl)
+
+            // Se abbiamo aperto una playlist album (es. VLOLAK...), cerchiamo l'ID browse diretto MPREb_
+            // che contiene la pagina completa dell'album con le 'Altre versioni'.
+            if (!targetBrowseId.startsWith("MPREb_")) {
+                val mprebMatch = Regex("""(MPREb_[a-zA-Z0-9_-]+)""").find(rawJson)
+                if (mprebMatch != null) {
+                    val mprebId = mprebMatch.groupValues[1]
+                    try {
+                        val mprebReq = buildInnertubeRequest("browse", "\"browseId\": \"$mprebId\"")
+                        val mprebResp = client.newCall(mprebReq).execute()
+                        val mprebJson = mprebResp.body?.string().orEmpty()
+                        if (mprebJson.isNotBlank()) {
+                            targetBrowseId = mprebId
+                            rawJson = mprebJson
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
 
             val root = gson.fromJson(rawJson, JsonObject::class.java)
+
+            // Estrazione metadati header (se presenti)
+            var resolvedTitle = albumTitle
+            var resolvedArtist = artistName
+            var resolvedCoverUrl = coverUrl
+            var resolvedYear: String? = null
+            var resolvedType = "Album"
+
+            val headerItem = root.getAsJsonObject("contents")
+                ?.getAsJsonObject("twoColumnBrowseResultsRenderer")
+                ?.getAsJsonArray("tabs")?.get(0)?.asJsonObject
+                ?.getAsJsonObject("tabRenderer")?.getAsJsonObject("content")
+                ?.getAsJsonObject("sectionListRenderer")?.getAsJsonArray("contents")?.get(0)?.asJsonObject
+                ?.getAsJsonObject("musicResponsiveHeaderRenderer")
+                ?: root.getAsJsonObject("header")?.getAsJsonObject("musicResponsiveHeaderRenderer")
+
+            if (headerItem != null) {
+                val hTitle = headerItem.getAsJsonObject("title")?.getAsJsonArray("runs")
+                    ?.joinToString("") { it.asJsonObject.get("text")?.asString.orEmpty() }?.trim().orEmpty()
+                if (hTitle.isNotEmpty() && (resolvedTitle.isEmpty() || resolvedTitle == "Album")) {
+                    resolvedTitle = hTitle
+                }
+
+                val hArtist = headerItem.getAsJsonObject("straplineTextOne")?.getAsJsonArray("runs")
+                    ?.joinToString("") { it.asJsonObject.get("text")?.asString.orEmpty() }?.trim().orEmpty()
+                if (hArtist.isNotEmpty() && (resolvedArtist.isEmpty() || resolvedArtist == "Artista")) {
+                    resolvedArtist = hArtist
+                }
+
+                val subRuns = headerItem.getAsJsonObject("subtitle")?.getAsJsonArray("runs")
+                subRuns?.forEach { r ->
+                    val t = r.asJsonObject.get("text")?.asString.orEmpty().trim()
+                    if (t.matches(Regex("""\d{4}"""))) {
+                        resolvedYear = t
+                    } else if (t.equals("Album", ignoreCase = true) || t.equals("Singolo", ignoreCase = true) || t.equals("EP", ignoreCase = true)) {
+                        resolvedType = t
+                    }
+                }
+
+                val hThumb = headerItem.getAsJsonObject("thumbnail")
+                    ?.getAsJsonObject("musicThumbnailRenderer")
+                    ?.getAsJsonObject("thumbnail")
+                    ?.getAsJsonArray("thumbnails")?.lastOrNull()?.asJsonObject
+                    ?.get("url")?.asString.orEmpty().toHighResThumbnail()
+                if (hThumb.isNotEmpty() && resolvedCoverUrl.isEmpty()) {
+                    resolvedCoverUrl = hThumb
+                }
+            }
+
             val secondaryContents = root.getAsJsonObject("contents")
                 ?.getAsJsonObject("twoColumnBrowseResultsRenderer")
                 ?.getAsJsonObject("secondaryContents")
                 ?.getAsJsonObject("sectionListRenderer")
                 ?.getAsJsonArray("contents")
+                ?: root.getAsJsonObject("contents")
+                    ?.getAsJsonObject("singleColumnBrowseResultsRenderer")
+                    ?.getAsJsonArray("tabs")?.get(0)?.asJsonObject
+                    ?.getAsJsonObject("tabRenderer")?.getAsJsonObject("content")
+                    ?.getAsJsonObject("sectionListRenderer")?.getAsJsonArray("contents")
 
             val tracks = mutableListOf<Track>()
+            val otherVersions = mutableListOf<Album>()
+            val relatedSections = mutableListOf<AlbumSection>()
 
             secondaryContents?.forEach { secEl ->
                 val shelf = secEl.asJsonObject.getAsJsonObject("musicShelfRenderer")
+                    ?: secEl.asJsonObject.getAsJsonObject("musicPlaylistShelfRenderer")
+                
                 shelf?.getAsJsonArray("contents")?.forEach { itemEl ->
                     val rend = itemEl.asJsonObject.getAsJsonObject("musicResponsiveListItemRenderer")
                     if (rend != null) {
@@ -315,7 +402,6 @@ class YoutubeMusicService(
 
                         val title = titleRuns?.joinToString("") { it.asJsonObject.get("text")?.asString.orEmpty() }?.trim().orEmpty()
 
-                        // Estrazione durata da fixedColumns (es. "3:45") o flexColumns secondari
                         var durationText = "3:30"
                         val fixedColumns = rend.getAsJsonArray("fixedColumns")
                         if (fixedColumns != null && fixedColumns.size() > 0) {
@@ -356,30 +442,108 @@ class YoutubeMusicService(
                             ?.getAsJsonArray("thumbnails")?.lastOrNull()?.asJsonObject
                             ?.get("url")?.asString.orEmpty().toHighResThumbnail()
 
-                        val finalThumb = if (coverUrl.isNotEmpty()) coverUrl else extractedThumb
+                        val finalThumb = if (resolvedCoverUrl.isNotEmpty()) resolvedCoverUrl else extractedThumb
 
                         if (!videoId.isNullOrEmpty() && title.isNotEmpty()) {
                             tracks.add(
                                 Track(
                                     id = videoId,
                                     title = title,
-                                    artist = artistName,
+                                    artist = resolvedArtist,
                                     thumbnailUrl = finalThumb,
                                     durationMs = calculatedDurationMs,
-                                    album = albumTitle,
-                                    albumBrowseId = browseId,
-                                    viewsText = "Album • $albumTitle"
+                                    album = resolvedTitle,
+                                    albumBrowseId = targetBrowseId,
+                                    viewsText = "Album • $resolvedTitle"
                                 )
                             )
                         }
                     }
                 }
+
+                // Estrazione caroselli (es. "Altre versioni", "Uscite per te", ecc.)
+                val carousel = secEl.asJsonObject.getAsJsonObject("musicCarouselShelfRenderer")
+                if (carousel != null) {
+                    val header = carousel.getAsJsonObject("header")?.getAsJsonObject("musicCarouselShelfBasicHeaderRenderer")
+                    val headerTitle = header?.getAsJsonObject("title")?.getAsJsonArray("runs")
+                        ?.joinToString("") { it.asJsonObject.get("text")?.asString.orEmpty() }?.trim().orEmpty()
+
+                    val items = carousel.getAsJsonArray("contents")
+                    val carouselAlbums = mutableListOf<Album>()
+                    items?.forEach { itemEl ->
+                        val rend = itemEl.asJsonObject.getAsJsonObject("musicTwoRowItemRenderer") ?: return@forEach
+                        val itemTitle = rend.getAsJsonObject("title")?.getAsJsonArray("runs")
+                            ?.joinToString("") { it.asJsonObject.get("text")?.asString.orEmpty() }?.trim().orEmpty()
+
+                        val itemBrowseId = rend.getAsJsonObject("navigationEndpoint")?.getAsJsonObject("browseEndpoint")
+                            ?.get("browseId")?.asString
+                            ?: rend.getAsJsonObject("title")?.getAsJsonArray("runs")?.get(0)?.asJsonObject
+                                ?.getAsJsonObject("navigationEndpoint")?.getAsJsonObject("browseEndpoint")
+                                ?.get("browseId")?.asString
+
+                        val subRuns = rend.getAsJsonObject("subtitle")?.getAsJsonArray("runs")
+                        var itemType = "Album"
+                        var itemYear: String? = null
+                        var itemArtist = ""
+                        subRuns?.forEach { r ->
+                            val txt = r.asJsonObject.get("text")?.asString.orEmpty().trim()
+                            when {
+                                txt.equals("Album", ignoreCase = true) -> itemType = "Album"
+                                txt.equals("Singolo", ignoreCase = true) -> itemType = "Singolo"
+                                txt.equals("EP", ignoreCase = true) -> itemType = "EP"
+                                txt.matches(Regex("""\d{4}""")) -> itemYear = txt
+                                txt != "•" && txt != "·" && txt.isNotEmpty() -> {
+                                    if (itemArtist.isEmpty()) itemArtist = txt
+                                }
+                            }
+                        }
+
+                        val itemThumb = rend.getAsJsonObject("thumbnailRenderer")?.getAsJsonObject("musicThumbnailRenderer")
+                            ?.getAsJsonObject("thumbnail")?.getAsJsonArray("thumbnails")?.lastOrNull()?.asJsonObject
+                            ?.get("url")?.asString.orEmpty().toHighResThumbnail()
+
+                        if (!itemBrowseId.isNullOrEmpty() && itemTitle.isNotEmpty()) {
+                            carouselAlbums.add(
+                                Album(
+                                    id = itemBrowseId,
+                                    title = itemTitle,
+                                    artist = if (itemArtist.isNotEmpty()) itemArtist else resolvedArtist,
+                                    coverUrl = itemThumb,
+                                    year = itemYear,
+                                    type = itemType,
+                                    browseId = itemBrowseId
+                                )
+                            )
+                        }
+                    }
+
+                    if (carouselAlbums.isNotEmpty()) {
+                        val titleToUse = headerTitle.ifEmpty { "Consigliati" }
+                        if (titleToUse.contains("version", ignoreCase = true) ||
+                            titleToUse.contains("edizion", ignoreCase = true) ||
+                            titleToUse.contains("edition", ignoreCase = true) ||
+                            titleToUse.contains("altre versioni", ignoreCase = true)
+                        ) {
+                            otherVersions.addAll(carouselAlbums)
+                        }
+                        relatedSections.add(AlbumSection(title = titleToUse, items = carouselAlbums))
+                    }
+                }
             }
 
-            tracks
+            AlbumPage(
+                title = resolvedTitle,
+                artist = resolvedArtist,
+                coverUrl = resolvedCoverUrl,
+                year = resolvedYear,
+                type = resolvedType,
+                tracks = tracks,
+                otherVersions = otherVersions,
+                relatedSections = relatedSections
+            )
         } catch (e: Exception) {
             e.printStackTrace()
-            emptyList()
+            AlbumPage(title = albumTitle, artist = artistName, coverUrl = coverUrl)
         }
     }
 
