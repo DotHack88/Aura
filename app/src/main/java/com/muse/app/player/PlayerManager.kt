@@ -246,7 +246,12 @@ class PlayerManager(
             try {
                 Log.d("MuseRadio", "Refill coda da seme: $seedId appendTracks=$appendTracks (sessione artisti: $sessionArtists)")
                 val upNext = musicRepository.getUpNext(seedId, params)
-                val candidates = upNext.tracks
+                val candidates = if (upNext.tracks.isNotEmpty()) {
+                    upNext.tracks
+                } else {
+                    Log.d("MuseRadio", "UpNext da InnerTube vuoto, fallback su NewPipe getRelatedTracks per $seedId")
+                    musicRepository.getRelatedTracks(seedId)
+                }
                 
                 withContext(Dispatchers.Main) {
                     _playerState.update { it.copy(
@@ -339,7 +344,8 @@ class PlayerManager(
         if (tracksAhead <= 3) {
             val seed = radioSeedTrackId ?: state.currentTrack?.id ?: return
             val currentChipParams = state.upNextChips.find { it.title == state.selectedChip }?.endpointParams
-            generateRadioQueue(seed, state.playlist, currentChipParams)
+            isRadioRefilling = false
+            generateRadioQueue(seed, state.playlist, currentChipParams, appendTracks = true)
         }
     }
 
@@ -565,8 +571,6 @@ class PlayerManager(
                 val localUri = "file://${localFile.absolutePath}"
                 val mediaItem = createMediaItem(localUri, track)
                 withContext(Dispatchers.Main) {
-                    requestAudioFocus()
-                    exoPlayer.stop()
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
                     if (startPositionMs > 0) exoPlayer.seekTo(startPositionMs)
@@ -623,8 +627,6 @@ class PlayerManager(
                 }
                 val mediaItem = createMediaItem(streamUrl, track)
                 withContext(Dispatchers.Main) {
-                    requestAudioFocus()
-                    exoPlayer.stop()
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
                     if (startPositionMs > 0) exoPlayer.seekTo(startPositionMs)
@@ -974,25 +976,50 @@ class PlayerManager(
                 } while (randomIndex == state.currentIndex)
                 randomIndex
             } else {
-                val candidate = state.currentIndex + 1
-                if (candidate >= state.playlist.size) {
-                    if (state.repeat == RepeatMode.ALL) {
-                        0
-                    } else {
-                        return@launch
-                    }
+                state.currentIndex + 1
+            }
+
+            if (nextIndex in state.playlist.indices) {
+                val nextTrack = state.playlist[nextIndex]
+                val tracksAhead = state.playlist.size - nextIndex - 1
+                if (tracksAhead <= 3) {
+                    val seed = radioSeedTrackId ?: nextTrack.id
+                    generateRadioQueue(seed, state.playlist, appendTracks = true)
+                }
+                playTrack(nextTrack, state.playlist)
+            } else {
+                // Fine della coda raggiunta: non fermarsi MAI, continua con autoplay infinito!
+                if (state.repeat == RepeatMode.ALL && state.playlist.isNotEmpty()) {
+                    playTrack(state.playlist.first(), state.playlist)
                 } else {
-                    candidate
+                    Log.d("PlayerManager", "Fine coda raggiunta — generazione automatica nuovi brani radio")
+                    val seed = state.currentTrack?.id ?: radioSeedTrackId
+                    if (seed != null) {
+                        val newTracks = withContext(Dispatchers.IO) {
+                            try {
+                                val upNext = musicRepository.getUpNext(seed)
+                                val list = if (upNext.tracks.isNotEmpty()) upNext.tracks else musicRepository.getRelatedTracks(seed)
+                                val existingIds = state.playlist.map { it.id }.toSet()
+                                list.filter { it.id !in existingIds }
+                            } catch (e: Exception) {
+                                val list = musicRepository.getRelatedTracks(seed)
+                                val existingIds = state.playlist.map { it.id }.toSet()
+                                list.filter { it.id !in existingIds }
+                            }
+                        }
+                        if (newTracks.isNotEmpty()) {
+                            val updatedPlaylist = state.playlist + newTracks
+                            val nextTrk = newTracks.first()
+                            _playerState.update { it.copy(playlist = updatedPlaylist) }
+                            playTrack(nextTrk, updatedPlaylist)
+                        } else if (state.playlist.isNotEmpty()) {
+                            playTrack(state.playlist.first(), state.playlist)
+                        }
+                    } else if (state.playlist.isNotEmpty()) {
+                        playTrack(state.playlist.first(), state.playlist)
+                    }
                 }
             }
-            val nextTrack = state.playlist[nextIndex]
-            // Controlla se riempire la coda prima di avanzare
-            val tracksAhead = state.playlist.size - nextIndex - 1
-            if (tracksAhead <= 3) {
-                val seed = radioSeedTrackId ?: nextTrack.id
-                generateRadioQueue(seed, state.playlist)
-            }
-            playTrack(nextTrack, state.playlist)
         }
     }
 
@@ -1290,21 +1317,7 @@ class PlayerManager(
                         }
                     }
                     RepeatMode.ALL -> next()
-                    RepeatMode.OFF -> {
-                        // Fine playlist: ferma gracefully senza errori
-                        val hasNext = state.currentIndex < state.playlist.size - 1
-                        if (hasNext) {
-                            next()
-                        } else {
-                            // Ultimo brano — reset stato senza mostrare errori
-                            releaseWakeAndWifiLocks()
-                            withContext(Dispatchers.Main) {
-                                _playerState.update { it.copy(isPlaying = false, positionMs = 0L) }
-                            }
-                            delay(500)
-                            isNaturalEnd = false
-                        }
-                    }
+                    RepeatMode.OFF -> next()
                 }
                 // Rilascia il lock dopo un breve delay per immunizzarsi da STATE_ENDED ridondanti
                 delay(400)
