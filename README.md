@@ -1,6 +1,6 @@
 # Aura 🎵 — Native Android Music Player
 
-![Version](https://img.shields.io/badge/versione-1.0.20-blueviolet?style=flat-square)
+![Version](https://img.shields.io/badge/versione-1.0.21-blueviolet?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Android%208.0%2B-green?style=flat-square)
 ![Build](https://img.shields.io/badge/build-release-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
@@ -21,8 +21,8 @@ L'app utilizza un'architettura ibrida per l'estrazione dei dati:
 
 | # | Versione | Tipo | File | Note |
 |---|----------|------|------|------|
-| 1 | 1.0.20 | 🐛 Debug | [`Aura-1.0.20-debug.apk`](https://github.com/DotHack88/Aura/releases/download/v1.0.20/Aura-1.0.20-debug.apk) | Test/sviluppo, debugger USB |
-| 2 | 1.0.20 | 🚀 Release | [`Aura-1.0.20-release.apk`](https://github.com/DotHack88/Aura/releases/download/v1.0.20/Aura-1.0.20-release.apk) | Ottimizzato R8, ~30-50% più piccolo |
+| 1 | 1.0.21 | 🐛 Debug | [`Aura-1.0.21-debug.apk`](https://github.com/DotHack88/Aura/releases/download/v1.0.21/Aura-1.0.21-debug.apk) | Test/sviluppo, debugger USB |
+| 2 | 1.0.21 | 🚀 Release | [`Aura-1.0.21-release.apk`](https://github.com/DotHack88/Aura/releases/download/v1.0.21/Aura-1.0.21-release.apk) | Ottimizzato R8, ~30-50% più piccolo |
 
 ### ⚠️ Tipo di build: Debug vs Release
 
