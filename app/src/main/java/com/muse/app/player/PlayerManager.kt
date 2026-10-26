@@ -73,9 +73,18 @@ class PlayerManager(
 
     fun acquireWakeAndWifiLocks(timeoutMs: Long = 45_000L) {
         try {
-            if (!wakeLock.isHeld) wakeLock.acquire(timeoutMs)
+            if (!wakeLock.isHeld) {
+                if (timeoutMs > 0) {
+                    wakeLock.acquire(timeoutMs)
+                } else {
+                    // Lock indefinito (senza timeout): rimane attivo finché non rilasciato
+                    // esplicitamente. Usato durante la riproduzione continua.
+                    @Suppress("DEPRECATION")
+                    wakeLock.acquire()
+                }
+            }
             if (!wifiLock.isHeld) wifiLock.acquire()
-            Log.d("PlayerManager", "WakeLock e WifiLock acquisiti (timeout ${timeoutMs}ms)")
+            Log.d("PlayerManager", "WakeLock e WifiLock acquisiti (timeout ${if (timeoutMs > 0) "${timeoutMs}ms" else "indefinito"})")
         } catch (e: Exception) {
             Log.w("PlayerManager", "Errore acquisizione locks: ${e.message}")
         }
@@ -151,6 +160,10 @@ class PlayerManager(
     private var isNaturalEnd = false
     /** True mentre stiamo già gestendo un STATE_ENDED, per evitare doppia esecuzione (race condition) */
     private var isHandlingEnd = false
+    /** True durante il retry automatico dopo un errore: evita che STATE_IDLE rilasci i WakeLock
+     *  mentre stiamo ancora cercando di riprendere la riproduzione. */
+    @Volatile
+    private var isRetryingAfterError = false
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var mediaController: MediaController? = null
@@ -859,7 +872,15 @@ class PlayerManager(
                 pausedByFocusLoss = false // pausa manuale: non riprendere automaticamente al GAIN
                 exoPlayer.pause()
                 releaseAudioFocus()
+                // Rilascia i lock solo alla pausa manuale dell'utente: la CPU e il Wi-Fi
+                // non servono mentre la riproduzione è sospesa dall'utente.
+                releaseWakeAndWifiLocks()
             } else {
+                // Ri-acquisisci i lock prima di riprendere la riproduzione.
+                // Usiamo un timeout generoso (60s) per la fase di pre-buffering;
+                // verrà mantenuto durante l'intera riproduzione finché l'utente non
+                // mette in pausa o si verifica un errore.
+                acquireWakeAndWifiLocks(60_000L)
                 requestAudioFocus()
                 exoPlayer.play()
             }
@@ -1282,6 +1303,7 @@ class PlayerManager(
             isHandlingEnd = true
             isNaturalEnd = true
             // Acquisizione immediata dei lock: evita sospensione CPU o disconnessione Wi-Fi a schermo spento
+            // durante il passaggio al brano successivo (critico in Doze Mode / lockscreen)
             acquireWakeAndWifiLocks(60_000L)
             val state = _playerState.value
 
@@ -1324,15 +1346,30 @@ class PlayerManager(
                 isHandlingEnd = false
             }
         }
-        
+
         if (playbackState == Player.STATE_READY) {
-            // Riproduzione avviata con successo — reset contatore errori e rilascio lock temporaneo
+            // Riproduzione avviata con successo — reset contatore errori
+            // ⚠️ NON rilasciamo i WakeLock/WifiLock qui: ExoPlayer è pronto ma la riproduzione
+            // è ancora in corso. I lock vengono rilasciati solo quando la riproduzione viene
+            // messa in pausa manualmente (togglePlayPause → pause) o si interrompe per errore.
+            // Rilasciarli qui causerebbe sleep CPU e disconnessione Wi-Fi a schermo bloccato!
             consecutiveErrors = 0
             isNaturalEnd = false
             _playerState.update { it.copy(isLoading = false) }
-            releaseWakeAndWifiLocks()
         } else if (playbackState == Player.STATE_BUFFERING) {
+            // Durante il buffering ri-acquisiamo i lock per garantire connettività
+            acquireWakeAndWifiLocks(60_000L)
             _playerState.update { it.copy(isLoading = true) }
+        } else if (playbackState == Player.STATE_IDLE) {
+            // Stato idle: ExoPlayer non sta riproducendo e non sta cercando di farlo.
+            // Rilasciamo i lock solo se:
+            // - non stiamo gestendo un end-of-track (isHandlingEnd), e
+            // - non stiamo eseguendo un retry automatico (isRetryingAfterError)
+            // Questo evita che un errore di rete faccia rilasciare i lock mentre stiamo
+            // ancora tentando di riavviare la riproduzione.
+            if (!isHandlingEnd && !isRetryingAfterError) {
+                releaseWakeAndWifiLocks()
+            }
         }
     }
 
@@ -1348,7 +1385,7 @@ class PlayerManager(
 
         val pos = exoPlayer.currentPosition
         val duration = exoPlayer.duration
-        
+
         // Risolve il bug della perdita di connessione a fine brano:
         // se c'è un errore negli ultimi 5 secondi, consideriamo il brano come terminato normalmente
         if (duration > 0 && pos >= duration - 5000) {
@@ -1362,11 +1399,20 @@ class PlayerManager(
         if (currentTrack != null && consecutiveErrors < 3) {
             Log.d("PlayerManager", "Tentativo di ripristino della traccia (${consecutiveErrors + 1}/3) da $pos ms")
             consecutiveErrors++
+            // Segnala che stiamo riprovando: impedisce a STATE_IDLE di rilasciare i lock
+            // prima che il retry abbia avuto modo di ri-acquisirli in playTrack()
+            isRetryingAfterError = true
             acquireWakeAndWifiLocks(45_000L)
             playTrack(currentTrack, _playerState.value.playlist, pos)
+            // Reset del flag dopo un delay sufficiente per l'avvio della riproduzione
+            scope.launch { 
+                kotlinx.coroutines.delay(3000L)
+                isRetryingAfterError = false 
+            }
             return
         }
 
+        isRetryingAfterError = false
         releaseWakeAndWifiLocks()
         handlePlaybackError("Errore di riproduzione: verifica la tua connessione.")
     }
