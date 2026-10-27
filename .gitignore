@@ -24,10 +24,8 @@ google-services.json
 *.jks
 *.keystore
 
-# Ruflo local secrets and runtime data
+# Environment secrets
 .env
 .env.local
 .env.*.local
-.claude-flow/data/
-.claude-flow/logs/
-.claude-flow/sessions/
+

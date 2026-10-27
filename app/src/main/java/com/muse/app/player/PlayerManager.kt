@@ -169,18 +169,63 @@ class PlayerManager(
     var mediaController: MediaController? = null
         private set
 
-    // ─── Prefetch Stream per transizioni a schermo spento ────────────────────
+    // ─── Gapless Prefetch (Fix 2) ─────────────────────────────────────────────
+    // Il brano successivo viene aggiunto come secondo MediaItem in ExoPlayer.
+    // Così ExoPlayer fa la transizione internamente (gapless), senza mai
+    // tornare a STATE_ENDED → rete → prepare(). Doze non può bloccare nulla.
     private var prefetchJob: Job? = null
     private var prefetchedTrackId: String? = null
+    /** Indice nella playlist del brano pre-caricato in ExoPlayer (gapless). */
+    @Volatile private var prefetchedNextIndex: Int = -1
+    /** True mentre ExoPlayer sta eseguendo una transizione gapless automatica
+     *  (MEDIA_ITEM_TRANSITION_REASON_AUTO). Impedisce a STATE_ENDED di avviare
+     *  un secondo next() ridondante. */
+    @Volatile private var gaplessTransitionInProgress: Boolean = false
 
-    private fun prefetchNextTrack(nextTrack: Track) {
+    private fun prefetchNextTrack(nextTrack: Track, nextIndex: Int) {
         if (prefetchedTrackId == nextTrack.id) return
         prefetchedTrackId = nextTrack.id
+        prefetchedNextIndex = nextIndex
         prefetchJob?.cancel()
         prefetchJob = scope.launch {
             try {
-                Log.d("PlayerManager", "Pre-fetching audio stream e cover per prossimo brano: ${nextTrack.title} (${nextTrack.id})")
-                NewPipeStreamExtractor.getAudioStreamUrl(nextTrack.id)
+                Log.d("PlayerManager", "[Gapless] Pre-fetching stream per: ${nextTrack.title} (${nextTrack.id})")
+
+                // 1. Prova prima il file locale
+                val localFile = musicRepository.offlineManager?.getLocalFile(nextTrack.id)
+                val url: String? = if (localFile != null && localFile.exists()) {
+                    "file://${localFile.absolutePath}"
+                } else {
+                    NewPipeStreamExtractor.getAudioStreamUrl(nextTrack.id)
+                }
+
+                if (url != null) {
+                    val mediaItem = createMediaItem(url, nextTrack)
+                    withContext(Dispatchers.Main) {
+                        // Aggiungi il brano successivo come secondo item solo se:
+                        // - c'è già esattamente 1 item in riproduzione (il corrente)
+                        // - l'ID del secondo item non è già quello che vogliamo
+                        val count = exoPlayer.mediaItemCount
+                        val alreadyQueued = count > 1 &&
+                            exoPlayer.getMediaItemAt(1).mediaId == nextTrack.id
+                        if (!alreadyQueued) {
+                            // Rimuovi eventuali item extra lasciando solo il corrente
+                            if (exoPlayer.currentMediaItemIndex < count - 1) {
+                                exoPlayer.removeMediaItems(
+                                    exoPlayer.currentMediaItemIndex + 1, count
+                                )
+                            }
+                            exoPlayer.addMediaItem(mediaItem)
+                            Log.d("PlayerManager", "[Gapless] Aggiunto '${nextTrack.title}' alla coda ExoPlayer")
+                        }
+                    }
+                } else {
+                    Log.w("PlayerManager", "[Gapless] URL non ottenuto per ${nextTrack.id}, fallback a next() al STATE_ENDED")
+                    prefetchedTrackId = null // reset: next() farà l'estrazione al momento giusto
+                    prefetchedNextIndex = -1
+                }
+
+                // 2. Pre-carica anche la cover in cache Coil
                 val imageRequest = ImageRequest.Builder(context)
                     .data(nextTrack.thumbnailUrl)
                     .size(512, 512)
@@ -188,7 +233,9 @@ class PlayerManager(
                     .build()
                 Coil.imageLoader(context).enqueue(imageRequest)
             } catch (e: Exception) {
-                Log.w("PlayerManager", "Errore durante il prefetch del prossimo brano: ${e.message}")
+                Log.w("PlayerManager", "[Gapless] Errore prefetch: ${e.message}")
+                prefetchedTrackId = null
+                prefetchedNextIndex = -1
             }
         }
     }
@@ -490,12 +537,34 @@ class PlayerManager(
         // Registra il receiver per cuffie staccate
         val noisyFilter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
         context.registerReceiver(becomingNoisyReceiver, noisyFilter)
+
+        // Prompt esenzione ottimizzazione batteria (una tantum, consigliato su Xiaomi/Samsung/OnePlus)
+        requestBatteryOptimizationExemption()
+    }
+
+    private fun requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = android.net.Uri.parse("package:${context.packageName}")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    Log.w("PlayerManager", "Impossibile aprire prompt esenzione batteria: ${e.message}")
+                }
+            }
+        }
     }
 
     fun playTrack(track: Track, playlist: List<Track> = listOf(track), startPositionMs: Long = 0L) {
         // Acquisisci WakeLock e WifiLock all'inizio del cambio brano: previene sleep della CPU e drop Wi-Fi a schermo spento
         acquireWakeAndWifiLocks(45_000L)
         prefetchedTrackId = null
+        prefetchedNextIndex = -1
+        gaplessTransitionInProgress = false
 
         val index = playlist.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
         // Ogni nuovo brano avviato esplicitamente resetta il contatore errori
@@ -1229,12 +1298,26 @@ class PlayerManager(
                         }
                     }
 
-                    // === PREFETCH: pre-estrazione stream e cover del prossimo brano negli ultimi 35 secondi ===
+                    // === GAPLESS PREFETCH (Fix 2): pre-carica il prossimo brano in ExoPlayer ===
+                    // Negli ultimi 40 secondi aggiungiamo il brano successivo come secondo MediaItem.
+                    // ExoPlayer eseguirà la transizione internamente: nessun STATE_ENDED → no Doze.
                     val state = _playerState.value
-                    val nextIdx = if (state.shuffle && state.playlist.size > 1) {
-                        -1
-                    } else {
-                        state.currentIndex + 1
+                    // Per lo shuffle scegliamo l'indice in anticipo e lo memorizziamo:
+                    // sarà usato sia per il prefetch sia da next() al momento della transizione.
+                    val nextIdx = when {
+                        state.shuffle && state.playlist.size > 1 -> {
+                            // Riusa l'indice già scelto se valido, altrimenti scegline uno nuovo
+                            val alreadyPicked = prefetchedNextIndex
+                            if (alreadyPicked in state.playlist.indices && alreadyPicked != state.currentIndex) {
+                                alreadyPicked
+                            } else {
+                                var rnd: Int
+                                do { rnd = kotlin.random.Random.nextInt(state.playlist.size) }
+                                while (rnd == state.currentIndex)
+                                rnd
+                            }
+                        }
+                        else -> state.currentIndex + 1
                     }
                     val nextTrack = if (nextIdx in state.playlist.indices) {
                         state.playlist[nextIdx]
@@ -1242,8 +1325,8 @@ class PlayerManager(
                         state.playlist.first()
                     } else null
 
-                    if (nextTrack != null && duration > 0 && (duration - currentPos) in 1000L..35_000L) {
-                        prefetchNextTrack(nextTrack)
+                    if (nextTrack != null && duration > 0 && (duration - currentPos) in 1000L..40_000L) {
+                        prefetchNextTrack(nextTrack, nextIdx)
                     }
 
                     // === CROSSFADE: pre-avvio del prossimo brano ===
@@ -1296,8 +1379,90 @@ class PlayerManager(
         }
     }
 
+    /**
+     * Gapless (Fix 2): ExoPlayer ha già avanzato al secondo MediaItem internamente.
+     * Aggiorniamo lo stato dell'app senza rieseguire estrazione/prepare/next().
+     * Questo callback arriva SOLO quando la transizione avviene senza STATE_ENDED.
+     */
+    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+        if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || mediaItem == null) return
+
+        val state = _playerState.value
+        // Cerca il brano nella playlist per ID (il mediaId è sempre impostato in createMediaItem)
+        val idx = if (prefetchedNextIndex in state.playlist.indices &&
+                      state.playlist[prefetchedNextIndex].id == mediaItem.mediaId) {
+            prefetchedNextIndex
+        } else {
+            state.playlist.indexOfFirst { it.id == mediaItem.mediaId }
+        }
+        if (idx < 0) return
+
+        val track = state.playlist[idx]
+        Log.d("PlayerManager", "[Gapless] Transizione automatica a '${track.title}' (idx=$idx)")
+
+        // Segnala che stiamo gestendo la transizione gapless
+        gaplessTransitionInProgress = true
+
+        // Pulizia: rimuove i MediaItem precedenti lasciando solo il corrente in ExoPlayer
+        scope.launch(Dispatchers.Main) {
+            try {
+                val currentIdx = exoPlayer.currentMediaItemIndex
+                if (currentIdx > 0) {
+                    exoPlayer.removeMediaItems(0, currentIdx)
+                }
+            } catch (e: Exception) {
+                Log.w("PlayerManager", "[Gapless] Errore pulizia MediaItems: ${e.message}")
+            }
+        }
+
+        // Reset flag prefetch per permettere il prefetch del prossimo-del-prossimo
+        prefetchedTrackId = null
+        prefetchedNextIndex = -1
+
+        // Aggiorna lo stato dell'app (uguale a ciò che fa playTrack, ma senza estrazione)
+        _playerState.update {
+            it.copy(
+                currentTrack = track,
+                currentIndex = idx,
+                isPlaying = true,
+                positionMs = 0L,
+                durationMs = track.durationMs,
+                errorMessage = null,
+                isLoading = false
+            )
+        }
+
+        // Aggiorna testi e segnali radio
+        _currentLyrics.value = null
+        loadLyricsForTrack(track)
+        signalReached30s = false
+        signalReached50pct = false
+        signalReachedComplete = false
+        radioSeedTrackId = track.id
+        if (!sessionArtists.contains(track.artist)) sessionArtists.add(track.artist)
+
+        // Registra lo storico
+        scope.launch { musicRepository.recordHistory(track, 0L, true) }
+
+        // Controlla se occorre refill della coda radio
+        maybeRefillQueue()
+
+        // Rinforza i lock per il buffering del nuovo brano
+        acquireWakeAndWifiLocks(60_000L)
+
+        scope.launch {
+            delay(600)
+            gaplessTransitionInProgress = false
+        }
+    }
+
     override fun onPlaybackStateChanged(playbackState: Int) {
         if (playbackState == Player.STATE_ENDED) {
+            // Se il gapless ha già gestito la transizione, STATE_ENDED è ridondante: ignoralo.
+            if (gaplessTransitionInProgress) {
+                Log.d("PlayerManager", "STATE_ENDED ignorato: transizione gapless in corso")
+                return
+            }
             // Guard contro doppia esecuzione (race condition ExoPlayer)
             if (isHandlingEnd) return
             isHandlingEnd = true
@@ -1321,10 +1486,13 @@ class PlayerManager(
                 }
             }
 
+            // Questo path è il FALLBACK per quando il gapless prefetch non è arrivato in tempo.
+            // onMediaItemTransition gestisce il caso nominale (prefetch riuscito).
             // IMPORTANTE: onPlaybackStateChanged viene chiamato direttamente da ExoPlayer
             // sul thread della looper di ExoPlayer (non sul Main thread). Per evitare che
             // il passaggio al brano successivo venga throttlato dal sistema quando l'app è
             // in background/lockscreen, launciamo tutto il lavoro pesante su scope (Default).
+            Log.d("PlayerManager", "STATE_ENDED → fallback next() (gapless non riuscito in tempo)")
             scope.launch {
                 when (state.repeat) {
                     RepeatMode.ONE -> {
@@ -1501,6 +1669,7 @@ class PlayerManager(
         sleepTimerJob?.cancel()
         radioRefillJob?.cancel()
         crossfadeJob?.cancel()
+        prefetchJob?.cancel()
         if (wakeLock.isHeld) wakeLock.release()
         equalizerManager.release()
         exoPlayer.release()

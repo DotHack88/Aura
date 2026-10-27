@@ -11,6 +11,8 @@
     <!-- Necessario per mantenere la CPU attiva durante l'estrazione dello stream in background/lockscreen -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Necessario per escludere l'app da Doze/ottimizzazione batteria (fix cambio brano a schermo spento) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <queries>
         <package android:name="com.amazon.dee.app" />

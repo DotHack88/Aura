@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
@@ -151,6 +152,14 @@ class PlaybackService : MediaLibraryService() {
                     setSmallIcon(R.drawable.ic_notification)
                 }
         )
+    }
+
+    // FIX 1: Mantiene il servizio in foreground anche tra un brano e l'altro
+    // (STATE_ENDED → loading del successivo). Senza questo, Media3 declassa il
+    // servizio nei momenti senza riproduzione attiva, e Doze blocca la rete.
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        Log.d("PlaybackService", "onUpdateNotification: forceForeground=true (stato player=${session.player.playbackState})")
+        super.onUpdateNotification(session, true)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
