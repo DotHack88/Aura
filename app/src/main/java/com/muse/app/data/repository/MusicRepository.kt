@@ -1,5 +1,6 @@
 package com.muse.app.data.repository
 
+import android.util.Log
 import com.muse.app.BuildConfig
 import com.muse.app.data.local.*
 import com.muse.app.data.local.download.OfflineManager
@@ -836,7 +837,7 @@ class MusicRepository(
             // L'implementazione completa pusherebbe tutte le playlist e i preferiti.
             // Per ora deleghiamo il push alle azioni singole (toggleFavorite, createPlaylist) per limitare i write.
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("MusicRepository", "syncWithCloud: errore durante la sincronizzazione", e)
             // Ignora eventuali errori di rete
         }
     }

@@ -70,7 +70,18 @@
 # ── NewPipeExtractor ────────────────────────────────────────
 -keep class org.schabi.newpipe.extractor.** { *; }
 -dontwarn org.schabi.newpipe.extractor.**
+
+# Rhino (motore JS usato da NewPipe per l'estrazione): senza -keep
+# R8 in release rimuove classi caricate via reflection e rompe lo stream.
+-keep class org.mozilla.javascript.** { *; }
+-keep class org.mozilla.classfile.** { *; }
 -dontwarn org.mozilla.**
+
+# jsoup (parser HTML usato da NewPipe): -dontwarn non basta in release.
+-keep class org.jsoup.** { *; }
+-keepclassmembers class org.jsoup.** { *; }
+-dontwarn org.jsoup.**
+
 -dontwarn com.grack.**
 
 # ── ExoPlayer / Media3 ──────────────────────────────────────

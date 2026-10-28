@@ -48,7 +48,10 @@ class MainActivity : ComponentActivity() {
                     
                     updateInfo?.let { info ->
                         AlertDialog(
-                            onDismissRequest = { updateInfo = null },
+                            onDismissRequest = {
+                                UpdateManager(context).skipVersion(info.latestVersionName)
+                                updateInfo = null
+                            },
                             title = { Text("Nuovo aggiornamento disponibile") },
                             text = { Text("Versione ${info.latestVersionName} è disponibile.\n\n${info.releaseNotes}") },
                             confirmButton = {
@@ -61,7 +64,10 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             dismissButton = {
-                                TextButton(onClick = { updateInfo = null }) {
+                                TextButton(onClick = {
+                                    UpdateManager(context).skipVersion(info.latestVersionName)
+                                    updateInfo = null
+                                }) {
                                     Text("Ignora")
                                 }
                             }

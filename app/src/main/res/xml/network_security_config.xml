@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    targetSdk 34+ blocca il traffico HTTP in chiaro per default.
+    Qui lo ammette SOLO per gli host radio noti che usano ancora http://.
+    Qualunque altro traffico rimane HTTPS-only.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- RAI Radio -->
+        <domain includeSubdomains="true">icestreaming.rai.it</domain>
+
+        <!-- Radio 105 -->
+        <domain includeSubdomains="true">icy.unitedradio.it</domain>
+
+        <!-- RMC (Radio Monte Carlo) -->
+        <domain includeSubdomains="true">str0.creacast.com</domain>
+
+        <!-- Radio 24 -->
+        <domain includeSubdomains="true">ice.radio24.it</domain>
+
+        <!-- Zeno.fm -->
+        <domain includeSubdomains="true">stream.zeno.fm</domain>
+
+        <!-- Radio Radicale -->
+        <domain includeSubdomains="true">icecast.radioradicale.it</domain>
+    </domain-config>
+</network-security-config>

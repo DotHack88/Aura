@@ -66,7 +66,7 @@ object ComposeCapture {
                 file
             )
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("ComposeCapture", "saveBitmapAndGetUri: errore salvataggio bitmap", e)
             null
         }
     }

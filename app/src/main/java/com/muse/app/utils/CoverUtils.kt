@@ -21,7 +21,7 @@ object CoverUtils {
             }
             Uri.fromFile(destFile).toString()
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("CoverUtils", "savePlaylistCoverLocally: errore playlistId=$playlistId", e)
             null
         }
     }

@@ -356,7 +356,7 @@ fun AdvancedShareBottomSheet(
                                 shareImageIntent(context, uri)
                             }
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            android.util.Log.e("AdvancedShareBottomSheet", "condivisione immagine fallita", e)
                         } finally {
                             isSharing = false
                         }

@@ -56,18 +56,16 @@ class PlayerManager(
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 ) : Player.Listener {
 
-    // WakeLock parziale e WifiLock: mantengono CPU e Wi-Fi attivi ad alte prestazioni
-    // anche a schermo spento, impedendo cadute di connessione e blocchi tra un brano e l'altro.
+    // WakeLock parziale e WifiLock: mantengono CPU e Wi-Fi attivi durante
+    // l'estrazione dello stream e il buffering, anche a schermo spento.
+    // NOTA: LOW_LATENCY è efficace solo in foreground con schermo acceso (doc Android);
+    // per la riproduzione in background il lock corretto è HIGH_PERF.
     private val wakeLock: PowerManager.WakeLock = (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
         .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Muse::StreamExtractionWakeLock")
 
     private val wifiLock: WifiManager.WifiLock = (context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
         .createWifiLock(
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
-            } else {
-                WifiManager.WIFI_MODE_FULL_HIGH_PERF
-            },
+            WifiManager.WIFI_MODE_FULL_HIGH_PERF,
             "Muse::PlaybackWifiLock"
         ).apply { setReferenceCounted(false) }
 

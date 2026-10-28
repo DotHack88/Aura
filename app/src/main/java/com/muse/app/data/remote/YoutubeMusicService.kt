@@ -1,5 +1,6 @@
 package com.muse.app.data.remote
 
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
@@ -93,7 +94,7 @@ class YoutubeMusicService(
                 viewsText = details.get("viewCount")?.asString?.let { "$it visualizzazioni" }
             )
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("YoutubeMusicService", "getVideoDetails: errore per videoId", e)
             null
         }
     }
@@ -128,7 +129,7 @@ class YoutubeMusicService(
                 popularTracks = if (mergedTracks.size > 5) mergedTracks.take(5) else mergedTracks
             )
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("YoutubeMusicService", "search: errore query", e)
             SearchResult()
         }
     }
@@ -274,7 +275,7 @@ class YoutubeMusicService(
             }
             albums
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("YoutubeMusicService", "searchAlbums: errore", e)
             emptyList()
         }
     }
@@ -312,7 +313,7 @@ class YoutubeMusicService(
                             rawJson = mprebJson
                         }
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        Log.w("YoutubeMusicService", "getAlbumPage: fallback mprebId fallito", e)
                     }
                 }
             }
@@ -542,7 +543,7 @@ class YoutubeMusicService(
                 relatedSections = relatedSections
             )
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("YoutubeMusicService", "getAlbumPage: errore browseId=$browseId", e)
             AlbumPage(title = albumTitle, artist = artistName, coverUrl = coverUrl)
         }
     }
@@ -688,7 +689,7 @@ class YoutubeMusicService(
             
             com.muse.app.domain.model.ArtistDetails(artist = artist, topTracks = tracks, albums = albums, singles = singles, similarArtists = similarArtists)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("YoutubeMusicService", "getArtistDetails: errore browseId=$browseId", e)
             null
         }
     }
@@ -970,7 +971,7 @@ class YoutubeMusicService(
                 playlists = parsedPlaylists
             )
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("YoutubeMusicService", "parseYoutubeMusicResponse: errore parsing", e)
             SearchResult()
         }
     }
@@ -1267,7 +1268,7 @@ class YoutubeMusicService(
 
             tracks.take(20)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("YoutubeMusicService", "fetchNewReleases: errore", e)
             emptyList()
         }
     }
@@ -1442,7 +1443,7 @@ class YoutubeMusicService(
 
             UpNextResult(tracks = tracks, chips = chips)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("YoutubeMusicService", "getUpNext: errore videoId=$videoId", e)
             UpNextResult()
         }
     }

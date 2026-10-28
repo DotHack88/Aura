@@ -94,6 +94,17 @@ class PlaybackService : MediaLibraryService() {
                 browser: MediaSession.ControllerInfo,
                 params: LibraryParams?
             ): ListenableFuture<LibraryResult<MediaItem>> {
+                // Accettiamo solo controller trusted: la nostra app e Android Auto.
+                // Controller di terze parti non autorizzati ricevono RESULT_ERROR_NOT_SUPPORTED.
+                val callerPackage = browser.packageName
+                val isOwnApp = callerPackage == packageName
+                val isAndroidAuto = callerPackage == "com.google.android.projection.gearhead"
+                if (!isOwnApp && !isAndroidAuto) {
+                    Log.w("PlaybackService", "onGetLibraryRoot: controller non autorizzato ($callerPackage), rifiutato")
+                    return Futures.immediateFuture(
+                        LibraryResult.ofError(LibraryResult.RESULT_ERROR_NOT_SUPPORTED)
+                    )
+                }
                 val rootItem = MediaItem.Builder()
                     .setMediaId("root")
                     .setMediaMetadata(
