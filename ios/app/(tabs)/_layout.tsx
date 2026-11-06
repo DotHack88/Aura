@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { Home, Search, Radio, Library } from 'lucide-react-native';
 import { Colors } from '@/constants/Colors';
 import MiniPlayer from '@/components/player/MiniPlayer';
+import FullPlayerModal from '@/components/player/FullPlayerModal';
 
 export default function TabLayout() {
   return (
@@ -46,6 +47,7 @@ export default function TabLayout() {
         />
       </Tabs>
       <MiniPlayer />
+      <FullPlayerModal />
     </View>
   );
 }
@@ -68,4 +70,3 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 });
-

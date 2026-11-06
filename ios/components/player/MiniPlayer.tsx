@@ -18,7 +18,7 @@ export default function MiniPlayer() {
       <BlurView intensity={80} tint="dark" style={styles.blur}>
         {/* Progress bar */}
         <View style={styles.progressBg}>
-          <View style={[styles.progressFill, { width: `${(progress * 100).toFixed(1)}%` as any }]} />
+          <View style={[styles.progressFill, { width: `${(progress * 100).toFixed(1)}%` }]} />
         </View>
 
         <View style={styles.row}>
