@@ -33,6 +33,9 @@ yarn-error.*
 # local env files
 .env*.local
 
+# eas config (keep this file)
+!eas.json
+
 # typescript
 *.tsbuildinfo
 
