@@ -26,7 +26,7 @@ def patch_expo():
                 # Remove Swift 6.2 upcoming features
                 content = re.sub(r'\s*\.enableUpcomingFeature\("NonisolatedNonsendingByDefault"\),?', '', content)
                 content = re.sub(r'\s*\.enableUpcomingFeature\("InferIsolatedConformances"\),?', '', content)
-                # Keep Swift 6 language mode (.v6) for C++ interop, consuming, and Task.immediate
+                # Ensure Swift 6 mode is preserved
                 if "swiftLanguageModes: [.v5]" in content:
                     content = content.replace("swiftLanguageModes: [.v5]", "swiftLanguageModes: [.v6]")
                 changed = True
@@ -37,16 +37,28 @@ def patch_expo():
         except Exception as e:
             print(f"Error patching {pkg_path}: {e}")
 
-    # 2. Patch JavaScriptCallback.swift to mark call closures as @Sendable
+    # 2. Patch JavaScriptCallback.swift to convert local 'func call' into Sendable closures
     js_cb = "node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptCallback.swift"
     if os.path.exists(js_cb):
         try:
             with open(js_cb, "r", encoding="utf-8") as f:
                 cb_content = f.read()
-            cb_content = re.sub(r'(@JavaScriptActor\s+)func call', r'\1@Sendable func call', cb_content)
+            # Clean up any previously inserted @Sendable func call
+            cb_content = cb_content.replace("@Sendable func call", "func call")
+
+            # Replace 4 void-returning local functions with closures
+            pattern_void = r'@JavaScriptActor\s+func call\(_ function: borrowing JavaScriptFunction, _ runtime: JavaScriptRuntime\) throws\s*\{'
+            replace_void = 'let call = { @JavaScriptActor (function: borrowing JavaScriptFunction, runtime: JavaScriptRuntime) throws in'
+            cb_content, n_void = re.subn(pattern_void, replace_void, cb_content)
+
+            # Replace 3 box-returning local functions with closures
+            pattern_box = r'@JavaScriptActor\s+func call\(_ function: borrowing JavaScriptFunction, _ runtime: JavaScriptRuntime\) throws -> UncheckedSendableBox<R>\s*\{'
+            replace_box = 'let call = { @JavaScriptActor (function: borrowing JavaScriptFunction, runtime: JavaScriptRuntime) throws -> UncheckedSendableBox<R> in'
+            cb_content, n_box = re.subn(pattern_box, replace_box, cb_content)
+
             with open(js_cb, "w", encoding="utf-8") as f:
                 f.write(cb_content)
-            print("Successfully patched JavaScriptCallback.swift (@Sendable)")
+            print(f"Successfully converted local functions in JavaScriptCallback.swift to closures (void: {n_void}, box: {n_box})")
         except Exception as e:
             print(f"Error patching {js_cb}: {e}")
 
