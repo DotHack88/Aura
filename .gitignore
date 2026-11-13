@@ -12,6 +12,7 @@ local.properties
 *.iml
 *.txt
 *.py
+!.github/scripts/*.py
 # Claude / AI helpers
 .claude/
 

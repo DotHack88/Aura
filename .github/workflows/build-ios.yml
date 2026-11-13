@@ -30,15 +30,7 @@ jobs:
         run: npm install --legacy-peer-deps
 
       - name: Patch Expo Swift packages for Xcode toolchain
-        working-directory: ./ios
-        run: |
-          find node_modules -name "Package.swift" -exec sed -i '' 's/swift-tools-version: 6.2/swift-tools-version: 6.0/g' {} +
-          if [ -f node_modules/expo-modules-jsi/apple/Package.swift ]; then
-            sed -i '' '/NonisolatedNonsendingByDefault/d' node_modules/expo-modules-jsi/apple/Package.swift
-            sed -i '' '/InferIsolatedConformances/d' node_modules/expo-modules-jsi/apple/Package.swift
-          fi
-          echo "Patched Package.swift files:"
-          find node_modules -name "Package.swift" -exec grep -H "swift-tools-version" {} +
+        run: python3 .github/scripts/patch-expo.py
 
       - name: Run Expo Prebuild
         working-directory: ./ios
