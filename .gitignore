@@ -12,8 +12,14 @@ local.properties
 *.iml
 *.txt
 *.py
-*.json
+# Claude / AI helpers
+.claude/
+
+# Root JSON files ignored, but allow ios and app configs
+/*.json
 !app/google-services.json
+!ios/**/*.json
+!ios/*.json
 *.ps1
 window_dump.xml
 *.md
