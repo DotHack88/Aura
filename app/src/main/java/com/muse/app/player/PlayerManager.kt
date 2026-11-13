@@ -535,9 +535,6 @@ class PlayerManager(
         // Registra il receiver per cuffie staccate
         val noisyFilter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
         context.registerReceiver(becomingNoisyReceiver, noisyFilter)
-
-        // Prompt esenzione ottimizzazione batteria (una tantum, consigliato su Xiaomi/Samsung/OnePlus)
-        requestBatteryOptimizationExemption()
     }
 
     private fun requestBatteryOptimizationExemption() {
