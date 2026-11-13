@@ -76,10 +76,10 @@ def patch_expo():
             if "vector.push_back(consuming: propNameId)" in rt_content:
                 rt_content = rt_content.replace(
                     "vector.push_back(consuming: propNameId)",
-                    "expo.pushBackPropNameId(vector, propNameId)"
+                    "expo.pushBackPropNameId(&vector, propNameId)"
                 )
             if "vector.push_back(propNameId)" in rt_content:
-                rt_content = rt_content.replace("vector.push_back(propNameId)", "expo.pushBackPropNameId(vector, propNameId)")
+                rt_content = rt_content.replace("vector.push_back(propNameId)", "expo.pushBackPropNameId(&vector, propNameId)")
             with open(js_rt, "w", encoding="utf-8") as f:
                 f.write(rt_content)
             print("Successfully patched JavaScriptRuntime.swift (regex + vector.push_back)")
