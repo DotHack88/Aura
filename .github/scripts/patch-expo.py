@@ -26,9 +26,9 @@ def patch_expo():
                 # Remove Swift 6.2 upcoming features
                 content = re.sub(r'\s*\.enableUpcomingFeature\("NonisolatedNonsendingByDefault"\),?', '', content)
                 content = re.sub(r'\s*\.enableUpcomingFeature\("InferIsolatedConformances"\),?', '', content)
-                # Set language mode to v5 to avoid strict concurrency blocking errors
-                if "swiftLanguageModes: [.v6]" in content:
-                    content = content.replace("swiftLanguageModes: [.v6]", "swiftLanguageModes: [.v5]")
+                # Keep Swift 6 language mode (.v6) for C++ interop, consuming, and Task.immediate
+                if "swiftLanguageModes: [.v5]" in content:
+                    content = content.replace("swiftLanguageModes: [.v5]", "swiftLanguageModes: [.v6]")
                 changed = True
             if changed:
                 with open(pkg_path, "w", encoding="utf-8") as f:
@@ -50,7 +50,7 @@ def patch_expo():
         except Exception as e:
             print(f"Error patching {js_cb}: {e}")
 
-    # 3. Patch JavaScriptRuntime.swift bare slash regex literal for Swift 5 compatibility
+    # 3. Patch JavaScriptRuntime.swift bare slash regex literal
     js_rt = "node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift"
     if os.path.exists(js_rt):
         try:
