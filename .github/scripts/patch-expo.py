@@ -209,7 +209,7 @@ def patch_expo():
  by value and moved in, because `jsi::PropNameID`'s copy constructor is deleted and Swift 6.1
  has no `push_back(consuming:)` on the imported C++ `std::vector`.
  */
-inline void pushBackPropNameId(PropNameIds &vector, jsi::PropNameID propNameId) noexcept {
+inline void pushBackPropNameId(HostObjectCallbacks::PropNameIds &vector, jsi::PropNameID propNameId) noexcept {
   vector.push_back(std::move(propNameId));
 }
 
