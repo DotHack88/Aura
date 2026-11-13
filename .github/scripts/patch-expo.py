@@ -69,9 +69,15 @@ def patch_expo():
                 rt_content = rt_content.replace(target_regex, replacement_regex)
             # `vector.push_back(consuming: propNameId)` is Swift 6.2+ syntax; Xcode 16.4 / Swift 6.1
             # rejects the `consuming:` label on the imported C++ `std::vector::push_back`
-            # (error: extraneous argument label 'consuming:' in call). Instead, expose a
-            # C++ helper that moves the move-only `jsi::PropNameID` into the vector and call
-            # that from Swift (see the JSIUtils.h patch below).
+            # (error: extraneous argument label 'consuming:' in call). Both the plain
+            # `push_back(propNameId)` form and the `push_back(consuming: propNameId)` form
+            # appear across expo-modules-jsi versions, so normalize both to the C++ helper
+            # `pushBackPropNameId` that performs the move internally.
+            if "vector.push_back(consuming: propNameId)" in rt_content:
+                rt_content = rt_content.replace(
+                    "vector.push_back(consuming: propNameId)",
+                    "expo.pushBackPropNameId(vector, propNameId)"
+                )
             if "vector.push_back(propNameId)" in rt_content:
                 rt_content = rt_content.replace("vector.push_back(propNameId)", "expo.pushBackPropNameId(vector, propNameId)")
             with open(js_rt, "w", encoding="utf-8") as f:
