@@ -23,10 +23,8 @@ def patch_expo():
                 content = content.replace("swift-tools-version: 6.2", "swift-tools-version: 6.0")
                 changed = True
             if "expo-modules-jsi" in pkg_path:
-                # Remove Swift 6.2 upcoming features
                 content = re.sub(r'\s*\.enableUpcomingFeature\("NonisolatedNonsendingByDefault"\),?', '', content)
                 content = re.sub(r'\s*\.enableUpcomingFeature\("InferIsolatedConformances"\),?', '', content)
-                # Ensure Swift 6 mode is preserved
                 if "swiftLanguageModes: [.v5]" in content:
                     content = content.replace("swiftLanguageModes: [.v5]", "swiftLanguageModes: [.v6]")
                 changed = True
@@ -37,21 +35,18 @@ def patch_expo():
         except Exception as e:
             print(f"Error patching {pkg_path}: {e}")
 
-    # 2. Patch JavaScriptCallback.swift to convert local 'func call' into Sendable closures
+    # 2. Patch JavaScriptCallback.swift: convert local named 'func call' into closures
     js_cb = "node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptCallback.swift"
     if os.path.exists(js_cb):
         try:
             with open(js_cb, "r", encoding="utf-8") as f:
                 cb_content = f.read()
-            # Clean up any previously inserted @Sendable func call
             cb_content = cb_content.replace("@Sendable func call", "func call")
 
-            # Replace 4 void-returning local functions with closures
             pattern_void = r'@JavaScriptActor\s+func call\(_ function: borrowing JavaScriptFunction, _ runtime: JavaScriptRuntime\) throws\s*\{'
             replace_void = 'let call = { @JavaScriptActor (function: borrowing JavaScriptFunction, runtime: JavaScriptRuntime) throws in'
             cb_content, n_void = re.subn(pattern_void, replace_void, cb_content)
 
-            # Replace 3 box-returning local functions with closures
             pattern_box = r'@JavaScriptActor\s+func call\(_ function: borrowing JavaScriptFunction, _ runtime: JavaScriptRuntime\) throws -> UncheckedSendableBox<R>\s*\{'
             replace_box = 'let call = { @JavaScriptActor (function: borrowing JavaScriptFunction, runtime: JavaScriptRuntime) throws -> UncheckedSendableBox<R> in'
             cb_content, n_box = re.subn(pattern_box, replace_box, cb_content)
@@ -62,7 +57,7 @@ def patch_expo():
         except Exception as e:
             print(f"Error patching {js_cb}: {e}")
 
-    # 3. Patch JavaScriptRuntime.swift bare slash regex literal
+    # 3. Patch JavaScriptRuntime.swift: regex literal & vector.push_back
     js_rt = "node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift"
     if os.path.exists(js_rt):
         try:
@@ -72,15 +67,15 @@ def patch_expo():
             replacement_regex = 'name.wholeMatch(of: try! Regex(#"^[a-zA-Z_$][a-zA-Z0-9_$]*$"#))'
             if target_regex in rt_content:
                 rt_content = rt_content.replace(target_regex, replacement_regex)
-                with open(js_rt, "w", encoding="utf-8") as f:
-                    f.write(rt_content)
-                print("Successfully patched JavaScriptRuntime.swift regex literal")
-            else:
-                print("Note: regex literal in JavaScriptRuntime.swift already patched or not found")
+            if "vector.push_back(consuming: propNameId)" in rt_content:
+                rt_content = rt_content.replace("vector.push_back(consuming: propNameId)", "vector.push_back(propNameId)")
+            with open(js_rt, "w", encoding="utf-8") as f:
+                f.write(rt_content)
+            print("Successfully patched JavaScriptRuntime.swift (regex + vector.push_back)")
         except Exception as e:
             print(f"Error patching {js_rt}: {e}")
 
-    # 4. Patch JavaScriptPromise.swift LongLivedState initializer for nonisolated context
+    # 4. Patch JavaScriptPromise.swift: nonisolated init()
     js_promise = "node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift"
     if os.path.exists(js_promise):
         try:
@@ -93,10 +88,63 @@ def patch_expo():
                 with open(js_promise, "w", encoding="utf-8") as f:
                     f.write(p_content)
                 print("Successfully patched JavaScriptPromise.swift (nonisolated init)")
-            else:
-                print("Note: LongLivedState in JavaScriptPromise.swift already patched or not found")
         except Exception as e:
             print(f"Error patching {js_promise}: {e}")
+
+    # 5. Patch Task+immediate.swift: replace iOS 26 Task.immediate with standard Task
+    task_imm = "node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Extensions/Task+immediate.swift"
+    if os.path.exists(task_imm):
+        try:
+            with open(task_imm, "r", encoding="utf-8") as f:
+                t_content = f.read()
+            t_content = re.sub(
+                r'if #available\(macOS 26\.0.*?return Task\(name: name, priority: \.high, operation: operation\)\s*\}',
+                'return Task(priority: .high, operation: operation)',
+                t_content,
+                flags=re.DOTALL
+            )
+            with open(task_imm, "w", encoding="utf-8") as f:
+                f.write(t_content)
+            print("Successfully patched Task+immediate.swift")
+        except Exception as e:
+            print(f"Error patching {task_imm}: {e}")
+
+    # 6. Patch HostFunctionClosure.h and RetainedSwiftPointer.h for C++ interop in Swift 6.1
+    hfc = "node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/HostFunctionClosure.h"
+    if os.path.exists(hfc):
+        try:
+            with open(hfc, "r", encoding="utf-8") as f:
+                hfc_content = f.read()
+            hfc_content = hfc_content.replace("SWIFT_IMMORTAL_REFERENCE", "")
+            target_hfc_ctor = "explicit HostFunctionClosure(Context context, Closure closure, Deallocator deallocator) : RetainedSwiftPointer(context, deallocator), _closure(closure) {};"
+            replacement_hfc_ctor = """HostFunctionClosure(Context context, Closure *closure, Deallocator *deallocator) : RetainedSwiftPointer(context, deallocator), _closure(closure) {}
+  HostFunctionClosure(HostFunctionClosure&&) = default;
+  HostFunctionClosure& operator=(HostFunctionClosure&&) = default;"""
+            if target_hfc_ctor in hfc_content:
+                hfc_content = hfc_content.replace(target_hfc_ctor, replacement_hfc_ctor)
+            with open(hfc, "w", encoding="utf-8") as f:
+                f.write(hfc_content)
+            print("Successfully patched HostFunctionClosure.h")
+        except Exception as e:
+            print(f"Error patching {hfc}: {e}")
+
+    rsp = "node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/RetainedSwiftPointer.h"
+    if os.path.exists(rsp):
+        try:
+            with open(rsp, "r", encoding="utf-8") as f:
+                rsp_content = f.read()
+            rsp_content = rsp_content.replace("SWIFT_IMMORTAL_REFERENCE", "")
+            target_rsp_ctor = "explicit RetainedSwiftPointer(Context context, Deallocator deallocator) : _context(context), _deallocator(std::move(deallocator)) {}"
+            replacement_rsp_ctor = """RetainedSwiftPointer(Context context, Deallocator *deallocator) : _context(context), _deallocator(deallocator) {}
+  RetainedSwiftPointer(RetainedSwiftPointer&&) = default;
+  RetainedSwiftPointer& operator=(RetainedSwiftPointer&&) = default;"""
+            if target_rsp_ctor in rsp_content:
+                rsp_content = rsp_content.replace(target_rsp_ctor, replacement_rsp_ctor)
+            with open(rsp, "w", encoding="utf-8") as f:
+                f.write(rsp_content)
+            print("Successfully patched RetainedSwiftPointer.h")
+        except Exception as e:
+            print(f"Error patching {rsp}: {e}")
 
 if __name__ == "__main__":
     patch_expo()
