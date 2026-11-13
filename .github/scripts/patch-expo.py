@@ -68,7 +68,9 @@ def patch_expo():
             if target_regex in rt_content:
                 rt_content = rt_content.replace(target_regex, replacement_regex)
             if "vector.push_back(consuming: propNameId)" in rt_content:
-                rt_content = rt_content.replace("vector.push_back(consuming: propNameId)", "vector.push_back(propNameId)")
+                rt_content = rt_content.replace("vector.push_back(consuming: propNameId)", "vector.push_back(consuming: propNameId)")
+            if "vector.push_back(propNameId)" in rt_content:
+                rt_content = rt_content.replace("vector.push_back(propNameId)", "vector.push_back(consuming: propNameId)")
             with open(js_rt, "w", encoding="utf-8") as f:
                 f.write(rt_content)
             print("Successfully patched JavaScriptRuntime.swift (regex + vector.push_back)")
@@ -145,6 +147,47 @@ def patch_expo():
             print("Successfully patched RetainedSwiftPointer.h")
         except Exception as e:
             print(f"Error patching {rsp}: {e}")
+
+# 7. Patch JSIUtils.h: import HostFunctionClosure by value instead of by pointer
+    # The Swift side constructs a `expo.HostFunctionClosure` value and passes it to
+    # `expo.createHostFunction`. Swift 6 / Xcode 16.4 imports the C++ `HostFunctionClosure *`
+    # parameter as `UnsafeMutablePointer<expo.HostFunctionClosure>` and refuses to convert the
+    # passed value to a pointer (error: cannot convert value of type 'expo.HostFunctionClosure'
+    # to expected argument type 'UnsafeMutablePointer<expo.HostFunctionClosure>').
+    # Taking the closure by value (and moving it into a `shared_ptr`) keeps the C++ lifetime
+    # semantics identical while letting Swift pass the value directly.
+    jsutils = "node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h"
+    if os.path.exists(jsutils):
+        try:
+            with open(jsutils, "r", encoding="utf-8") as f:
+                u_content = f.read()
+            u_changed = False
+            target_u1 = "const jsi::PropNameID &propName, HostFunctionClosure *closure) {"
+            replacement_u1 = "const jsi::PropNameID &propName, HostFunctionClosure closure) {"
+            if target_u1 in u_content:
+                u_content = u_content.replace(target_u1, replacement_u1)
+                u_changed = True
+            target_u2 = "auto closurePtr = std::shared_ptr<HostFunctionClosure>(closure);"
+            replacement_u2 = "auto closurePtr = std::make_shared<HostFunctionClosure>(std::move(closure));"
+            if target_u2 in u_content:
+                u_content = u_content.replace(target_u2, replacement_u2)
+                u_changed = True
+            target_u3 = "const char *name, HostFunctionClosure *closure) {"
+            replacement_u3 = "const char *name, HostFunctionClosure closure) {"
+            if target_u3 in u_content:
+                u_content = u_content.replace(target_u3, replacement_u3)
+                u_changed = True
+            target_u4 = "  return createHostFunction(runtime, propName, closure);"
+            replacement_u4 = "  return createHostFunction(runtime, propName, std::move(closure));"
+            if target_u4 in u_content:
+                u_content = u_content.replace(target_u4, replacement_u4)
+                u_changed = True
+            if u_changed:
+                with open(jsutils, "w", encoding="utf-8") as f:
+                    f.write(u_content)
+                print("Successfully patched JSIUtils.h (HostFunctionClosure by value)")
+        except Exception as e:
+            print(f"Error patching {jsutils}: {e}")
 
 if __name__ == "__main__":
     patch_expo()
