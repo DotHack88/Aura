@@ -32,6 +32,8 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.foundation.border
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,6 +88,8 @@ fun FullPlayerScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val state by playerManager.playerState.collectAsState()
     val track = state.currentTrack ?: return
     val isCasting by CastManager.isCasting.collectAsState()
@@ -218,6 +222,7 @@ fun FullPlayerScreen(
             exit = fadeOut(animationSpec = tween(300)),
             modifier = Modifier.fillMaxSize()
         ) {
+        if (!isLandscape) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -548,7 +553,11 @@ fun FullPlayerScreen(
 
                 // Indicatore Testi perfettamente centrato
                 Column(
-                    modifier = Modifier.align(Alignment.Center),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onNavigateToLyrics() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
@@ -627,6 +636,470 @@ fun FullPlayerScreen(
                     }
                 }
             }
+            }
+        }
+        } else {
+            // ==================== LAYOUT LANDSCAPE (ORIZZONTALE) ====================
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Barra Superiore a larghezza intera (sempre visibile)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Chiudi",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Correlati
+                        IconButton(onClick = { showRelated = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Recommend,
+                                contentDescription = "Correlati",
+                                tint = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+
+                        // Sleep Timer
+                        IconButton(onClick = { showSleepTimer = true }) {
+                            Icon(
+                                imageVector = if (state.sleepTimerRemainingMs > 0) Icons.Default.Nightlight else Icons.Default.BedtimeOff,
+                                contentDescription = "Sleep Timer",
+                                tint = if (state.sleepTimerRemainingMs > 0) accentColor else MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+
+                        // Crossfade
+                        IconButton(onClick = { showCrossfade = true }) {
+                            Icon(
+                                imageVector = if (state.crossfadeDurationMs > 0) Icons.Default.BlurOn else Icons.Default.BlurOff,
+                                contentDescription = "Crossfade",
+                                tint = if (state.crossfadeDurationMs > 0) accentColor else MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+
+                        // Equalizzatore
+                        IconButton(onClick = { showEqualizer = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Equalizer,
+                                contentDescription = "Equalizzatore",
+                                tint = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+
+                        IconButton(onClick = {
+                            if (!state.isVideoMode) {
+                                isVideoLoading = true
+                                playerManager.switchToVideoMode()
+                            } else {
+                                isVideoLoading = false
+                                playerManager.switchToAudioMode()
+                            }
+                        }) {
+                            Icon(
+                                imageVector = if (state.isVideoMode) Icons.Default.MusicNote else Icons.Default.Movie,
+                                contentDescription = if (state.isVideoMode) "Disattiva Motion Artwork" else "Attiva Motion Artwork",
+                                tint = if (state.isVideoMode) Color.White else accentColor
+                            )
+                        }
+                    }
+                }
+
+                if (state.isVideoMode) {
+                    Spacer(modifier = Modifier.weight(1f))
+                    if (isVideoLoading) {
+                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(40.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 3.dp
+                            )
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+
+                    // Controlli sovrapposti in basso per Video Mode in Landscape
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = track.title,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = track.artist,
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.7f)),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            FavoriteBurstButton(
+                                isFavorite = track.isFavorite,
+                                onClick = { playerManager.toggleFavoriteCurrent() }
+                            )
+                        }
+
+                        val progress = if (state.durationMs > 0) {
+                            (state.positionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
+                        } else 0f
+                        Slider(
+                            value = progress,
+                            onValueChange = { frac ->
+                                val targetMs = (frac * state.durationMs).toLong()
+                                playerManager.seekTo(targetMs)
+                            },
+                            colors = SliderDefaults.colors(
+                                thumbColor = accentColor,
+                                activeTrackColor = accentColor,
+                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { showSmartSpeaker = true }) {
+                                    Icon(imageVector = Icons.Default.Speaker, contentDescription = "Speaker", tint = Color.White.copy(alpha = 0.8f))
+                                }
+                                IconButton(onClick = { playerManager.toggleShuffle() }) {
+                                    Icon(imageVector = Icons.Default.Shuffle, contentDescription = "Shuffle", tint = if (state.shuffle) accentColor else Color.White.copy(alpha = 0.5f))
+                                }
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                IconButton(onClick = { playerManager.previous() }, modifier = Modifier.size(36.dp)) {
+                                    Icon(imageVector = Icons.Default.SkipPrevious, contentDescription = "Precedente", tint = Color.White, modifier = Modifier.size(26.dp))
+                                }
+                                FloatingActionButton(
+                                    onClick = { playerManager.togglePlayPause() },
+                                    shape = CircleShape,
+                                    containerColor = accentColor,
+                                    contentColor = Color.White,
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (state.isPlaying) "Pausa" else "Play",
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                                IconButton(onClick = { playerManager.next() }, modifier = Modifier.size(36.dp)) {
+                                    Icon(imageVector = Icons.Default.SkipNext, contentDescription = "Successivo", tint = Color.White, modifier = Modifier.size(26.dp))
+                                }
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { playerManager.cycleRepeatMode() }) {
+                                    Icon(
+                                        imageVector = if (state.repeat == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                                        contentDescription = "Repeat",
+                                        tint = if (state.repeat != RepeatMode.OFF) accentColor else Color.White.copy(alpha = 0.5f)
+                                    )
+                                }
+                                IconButton(onClick = { showQueue = true }) {
+                                    Icon(imageVector = Icons.AutoMirrored.Filled.QueueMusic, contentDescription = "Coda", tint = Color.White.copy(alpha = 0.8f))
+                                }
+                                IconButton(onClick = { showOptionsMenu = true }) {
+                                    Icon(imageVector = Icons.Default.MoreVert, contentDescription = "Opzioni", tint = Color.White.copy(alpha = 0.8f))
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Contenuto Landscape a due colonne (Sinistra: Copertina quadrata proporzionata, Destra: Controlli)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Copertina Sinistra: vincolata all'altezza disponibile in modo che non sbordi MAI
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .aspectRatio(1f, matchHeightConstraintsFirst = true)
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color.Black),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                MuseThumbnail(
+                                    url = track.thumbnailUrl,
+                                    contentDescription = track.title,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .border(
+                                            width = 1.dp,
+                                            brush = Brush.radialGradient(
+                                                colors = listOf(accentColor.copy(alpha = 0.8f), Color.Transparent)
+                                            ),
+                                            shape = RoundedCornerShape(20.dp)
+                                        ),
+                                    size = 280.dp,
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                            }
+                        }
+
+                        // Colonna Destra: Info, Slider, Playback, Opzioni
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            verticalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            // Info Brano & Tasto Preferito
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = track.title,
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (state.isLoading) Color.Transparent else MaterialTheme.colorScheme.onBackground
+                                        ),
+                                        modifier = if (state.isLoading)
+                                            Modifier.clip(RoundedCornerShape(4.dp)).shimmerEffect()
+                                        else Modifier,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = track.artist,
+                                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                FavoriteBurstButton(
+                                    isFavorite = track.isFavorite,
+                                    onClick = { playerManager.toggleFavoriteCurrent() }
+                                )
+                            }
+
+                            // Slider Progresso
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                val progress = if (state.durationMs > 0) {
+                                    (state.positionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
+                                } else 0f
+
+                                Slider(
+                                    value = progress,
+                                    onValueChange = { frac ->
+                                        val targetMs = (frac * state.durationMs).toLong()
+                                        playerManager.seekTo(targetMs)
+                                    },
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = accentColor,
+                                        activeTrackColor = accentColor,
+                                        inactiveTrackColor = accentColor.copy(alpha = 0.25f)
+                                    ),
+                                    thumb = {
+                                        SliderDefaults.Thumb(
+                                            interactionSource = sliderInteractionSource,
+                                            colors = SliderDefaults.colors(thumbColor = accentColor),
+                                            modifier = Modifier
+                                                .size(18.dp)
+                                                .shadow(
+                                                    elevation = 6.dp,
+                                                    shape = CircleShape,
+                                                    ambientColor = accentColor,
+                                                    spotColor = accentColor
+                                                )
+                                        )
+                                    },
+                                    interactionSource = sliderInteractionSource,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = formatTime(state.positionMs),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                    )
+                                    Text(
+                                        text = formatTime(state.durationMs),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                    )
+                                }
+                            }
+
+                            // Controlli Principali
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(onClick = { playerManager.toggleShuffle() }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Shuffle,
+                                        contentDescription = "Shuffle",
+                                        tint = if (state.shuffle) accentColor else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { playerManager.previous() },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SkipPrevious,
+                                        contentDescription = "Precedente",
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+
+                                FloatingActionButton(
+                                    onClick = { playerManager.togglePlayPause() },
+                                    shape = CircleShape,
+                                    containerColor = accentColor,
+                                    contentColor = Color.White,
+                                    modifier = Modifier.size(56.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (state.isPlaying) "Pausa" else "Play",
+                                        modifier = Modifier.size(30.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { playerManager.next() },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SkipNext,
+                                        contentDescription = "Successivo",
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+
+                                IconButton(onClick = { playerManager.cycleRepeatMode() }) {
+                                    val icon = when (state.repeat) {
+                                        RepeatMode.ONE -> Icons.Default.RepeatOne
+                                        RepeatMode.ALL -> Icons.Default.Repeat
+                                        RepeatMode.OFF -> Icons.Default.Repeat
+                                    }
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = "Repeat",
+                                        tint = if (state.repeat != RepeatMode.OFF) accentColor else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                                    )
+                                }
+                            }
+
+                            // Barra Inferiore (Speaker, Testi, Coda, Opzioni)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box {
+                                    IconButton(onClick = { showSmartSpeaker = true }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Speaker,
+                                            contentDescription = "Riproduci su speaker",
+                                            tint = if (isCasting) MaterialTheme.colorScheme.primary
+                                                   else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                                        )
+                                    }
+                                    if (isCasting) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .align(Alignment.TopEnd)
+                                                .background(Color(0xFF4CAF50), CircleShape)
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { onNavigateToLyrics() }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowUp,
+                                        contentDescription = "Testi",
+                                        tint = accentColor,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "TESTI",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            color = accentColor.copy(alpha = 0.8f),
+                                            letterSpacing = 1.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    )
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { showQueue = true }) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                                            contentDescription = "Coda di riproduzione",
+                                            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                                        )
+                                    }
+
+                                    IconButton(onClick = { showOptionsMenu = true }) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Opzioni brano",
+                                            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         } // chiusura AnimatedVisibility
