@@ -67,10 +67,13 @@ def patch_expo():
             replacement_regex = 'name.wholeMatch(of: try! Regex(#"^[a-zA-Z_$][a-zA-Z0-9_$]*$"#))'
             if target_regex in rt_content:
                 rt_content = rt_content.replace(target_regex, replacement_regex)
-            if "vector.push_back(consuming: propNameId)" in rt_content:
-                rt_content = rt_content.replace("vector.push_back(consuming: propNameId)", "vector.push_back(consuming: propNameId)")
+            # `vector.push_back(consuming: propNameId)` is Swift 6.2+ syntax; Xcode 16.4 / Swift 6.1
+            # rejects the `consuming:` label on the imported C++ `std::vector::push_back`
+            # (error: extraneous argument label 'consuming:' in call). Instead, expose a
+            # C++ helper that moves the move-only `jsi::PropNameID` into the vector and call
+            # that from Swift (see the JSIUtils.h patch below).
             if "vector.push_back(propNameId)" in rt_content:
-                rt_content = rt_content.replace("vector.push_back(propNameId)", "vector.push_back(consuming: propNameId)")
+                rt_content = rt_content.replace("vector.push_back(propNameId)", "expo.pushBackPropNameId(vector, propNameId)")
             with open(js_rt, "w", encoding="utf-8") as f:
                 f.write(rt_content)
             print("Successfully patched JavaScriptRuntime.swift (regex + vector.push_back)")
@@ -186,6 +189,43 @@ def patch_expo():
                 with open(jsutils, "w", encoding="utf-8") as f:
                     f.write(u_content)
                 print("Successfully patched JSIUtils.h (HostFunctionClosure by value)")
+        except Exception as e:
+            print(f"Error patching {jsutils}: {e}")
+
+    # 7b. Patch JSIUtils.h: add pushBackPropNameId helper
+    # `expo.HostObjectCallbacks::PropNameIds` is `std::vector<facebook::jsi::PropNameID>`, and
+    # `jsi::PropNameID` is move-only (its copy constructor is deleted). Swift 6.1 / Xcode 16.4
+    # has no `push_back(consuming:)` label on the imported C++ `std::vector::push_back`, so the
+    # move must happen in C++ through a small wrapper that takes the value by value.
+    if os.path.exists(jsutils):
+        try:
+            with open(jsutils, "r", encoding="utf-8") as f:
+                u2_content = f.read()
+            target_u5 = " */\ninline void getStringData("
+            replacement_u5 = """ */
+
+/**
+ Pushes a move-only `jsi::PropNameID` to the end of a `PropNameIds` vector. The value is taken
+ by value and moved in, because `jsi::PropNameID`'s copy constructor is deleted and Swift 6.1
+ has no `push_back(consuming:)` on the imported C++ `std::vector`.
+ */
+inline void pushBackPropNameId(PropNameIds &vector, jsi::PropNameID propNameId) noexcept {
+  vector.push_back(std::move(propNameId));
+}
+
+inline void getStringData("""
+            if target_u5 in u2_content and "pushBackPropNameId" not in u2_content:
+                # `PropNameIds` (expo::HostObjectCallbacks::PropNameIds) is defined in
+                # HostObjectCallbacks.h, which JSIUtils.h does not include. Add the include so
+                # the helper below can take a `PropNameIds &`.
+                if '#include "HostObjectCallbacks.h"' not in u2_content:
+                    u2_content = u2_content.replace(
+                        '#include "TypedArray.h"',
+                        '#include "HostObjectCallbacks.h"\n#include "TypedArray.h"'
+                    )
+                with open(jsutils, "w", encoding="utf-8") as f:
+                    f.write(u2_content.replace(target_u5, replacement_u5))
+                print("Successfully patched JSIUtils.h (pushBackPropNameId helper)")
         except Exception as e:
             print(f"Error patching {jsutils}: {e}")
 
