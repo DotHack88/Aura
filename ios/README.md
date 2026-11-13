@@ -39,30 +39,47 @@ ios/
 └── package.json
 ```
 
-## Come fare la build IPA (da Windows)
+## Come generare l'IPA (da Windows)
 
-### 1. Login su Expo
+### Metodo 1: GitHub Actions (Consigliato al 100% — Gratuito e Senza Mac)
+Abbiamo configurato una pipeline GitHub Actions automatizzata su macchine macOS con Xcode:
+
+1. Vai su GitHub su **`DotHack88/Aura`** → Scheda **Actions**.
+2. Nel menu a sinistra seleziona il workflow **Build iOS IPA (Aura)**.
+3. Clicca su **Run workflow** (sul ramo `main`).
+4. GitHub Actions avvierà la build su runner Mac ufficiale (`macos-latest`):
+   - Prebuild nativo Expo + CocoaPods
+   - Compilazione Release con `xcodebuild` (Unsigned)
+   - Creazione del pacchetto `Aura.ipa`
+5. Al termine (circa 8-12 minuti), troverai l'IPA pronto nella sezione **Artifacts** (o nella release) scaricabile direttamente.
+
+### Metodo 2: EAS Build (Cloud Expo)
 ```bash
 npx eas login
-# inserisci: tidus291
-```
-
-### 2. Inizializza il progetto su EAS (solo la prima volta)
-```bash
-npx eas init
-```
-
-### 3. Build IPA per test (sideloading)
-```bash
 npm run build:ios
-# oppure: npx eas build --platform ios --profile preview
 ```
-> La build avviene su Mac nel cloud (~15-20 min)  
-> Riceverai un link per scaricare l'IPA
 
-### 4. Installa su iPhone
-- **AltStore** → trascina l'IPA
-- **Sideloadly** → drag & drop + Apple ID
+---
+
+## Come installare l'IPA su iPhone (Sideloading)
+
+Con l'IPA scaricato puoi installarlo sul tuo iPhone con qualsiasi Apple ID gratuito:
+
+### Con Sideloadly (Metodo più semplice e veloce da Windows)
+1. Scarica e installa **[Sideloadly](https://sideloadly.io/)** su Windows.
+2. Collega il tuo iPhone al PC via USB (e accetta "Autorizza questo computer" se richiesto).
+3. Apri Sideloadly: trascina il file `Aura.ipa` nella finestra.
+4. Inserisci il tuo **Apple ID** (qualsiasi account gratuito).
+5. Premi **Start**. Sideloadly firmerà l'IPA e installerà l'app nativa sul tuo iPhone in 1 minuto.
+6. Sull'iPhone: vai in *Impostazioni > Generali > VPN e gestione dispositivo* e tocca "Autorizza" sul tuo profilo sviluppatore.
+
+### Con AltStore
+1. Apri **AltStore** sul tuo iPhone.
+2. Vai su **My Apps**, tocca il `+` in alto a sinistra.
+3. Seleziona il file `Aura.ipa` (trasferito via AirDrop, iCloud Drive o USB).
+4. AltStore firmerà e installerà l'app direttamente.
+
+---
 
 ## Bundle ID
 `io.aura.app`

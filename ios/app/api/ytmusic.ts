@@ -257,14 +257,21 @@ export async function getSuggestedTracks(): Promise<Track[]> {
 
 export async function fetchStreamUrl(videoId: string): Promise<string | null> {
   const PIPED_INSTANCES = [
+    'https://api.piped.private.coffee',
     'https://pipedapi.kavin.rocks',
     'https://api.piped.privacydev.net',
+    'https://pipedapi-libre.kavin.rocks',
+    'https://pipedapi.drgns.space',
+    'https://pipedapi.nosebs.ru',
     'https://pipedapi.mha.fi',
   ];
 
   for (const base of PIPED_INSTANCES) {
     try {
-      const res = await fetch(`${base}/streams/${videoId}`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
+      const res = await fetch(`${base}/streams/${videoId}`, { signal: controller.signal });
+      clearTimeout(timeoutId);
       if (!res.ok) continue;
       const data = await res.json();
       const audioStreams = data.audioStreams as any[];
@@ -281,16 +288,28 @@ export async function fetchStreamUrl(videoId: string): Promise<string | null> {
   }
 
   // Fallback to Invidious API
-  try {
-    const res = await fetch(`https://vid.puffyan.us/api/v1/videos/${videoId}`);
-    if (res.ok) {
-      const data = await res.json();
-      const adaptive = data.adaptiveFormats as any[];
-      const audio = adaptive?.find((f) => f.type?.startsWith('audio/'));
-      if (audio?.url) return audio.url;
+  const INVIDIOUS_INSTANCES = [
+    'https://inv.tux.pizza',
+    'https://invidious.nerdvpn.de',
+    'https://yewtu.be',
+    'https://vid.puffyan.us',
+  ];
+
+  for (const inv of INVIDIOUS_INSTANCES) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
+      const res = await fetch(`${inv}/api/v1/videos/${videoId}`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        const adaptive = data.adaptiveFormats as any[];
+        const audio = adaptive?.find((f) => f.type?.startsWith('audio/'));
+        if (audio?.url) return audio.url;
+      }
+    } catch {
+      // Continue next fallback
     }
-  } catch {
-    // End of fallbacks
   }
 
   return null;
