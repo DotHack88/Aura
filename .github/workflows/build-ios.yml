@@ -14,7 +14,7 @@ on:
 jobs:
   build-ipa:
     name: Build Unsigned iOS IPA
-    runs-on: macos-latest
+    runs-on: macos-15
 
     steps:
       - name: Checkout Repository
@@ -33,11 +33,11 @@ jobs:
 
       - name: Run Expo Prebuild
         working-directory: ./ios
-        run: npx expo prebuild --platform ios --clean
+        run: npx expo prebuild --platform ios --clean --no-install
 
       - name: Install CocoaPods
         working-directory: ./ios/ios
-        run: pod install --repo-update
+        run: pod install
 
       - name: Build Xcode Archive (Unsigned)
         working-directory: ./ios/ios
@@ -51,14 +51,15 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
             archive
 
       - name: Package Unsigned IPA
         working-directory: ./ios/ios
         run: |
           mkdir -p Payload
-          cp -r "build/Aura.xcarchive/Products/Applications/Aura.app" Payload/
-          zip -qr "../../Aura.ipa" Payload
+          cp -r build/Aura.xcarchive/Products/Applications/*.app Payload/
+          zip -qry "../../Aura.ipa" Payload
           ls -lh ../../Aura.ipa
 
       - name: Upload IPA Artifact
@@ -67,3 +68,4 @@ jobs:
           name: Aura-iOS-IPA
           path: Aura.ipa
           retention-days: 14
+
