@@ -285,5 +285,40 @@ inline void getStringData("""
         except Exception as e:
             print(f"Error patching JavaScriptError.swift: {e}")
 
+    # 10. Create EXEventEmitter.h compatibility stub for modules-core 58.1.0+
+    # expo-modules-core 58.1.0 removed EXEventEmitter.h and EXEventEmitterService.h.
+    # expo-av@15.1.x still imports <ExpoModulesCore/EXEventEmitter.h>. This stub
+    # provides backward compatibility by defining the protocols that were removed.
+    # Without this, the Xcode build fails with:
+    #   fatal error: 'ExpoModulesCore/EXEventEmitter.h' file not found
+    emitter_proto = os.path.join(ios_dir, "node_modules/expo-modules-core/ios/Legacy/Protocols/EXEventEmitter.h")
+    if not os.path.exists(emitter_proto):
+        try:
+            os.makedirs(os.path.dirname(emitter_proto), exist_ok=True)
+            stub_content = """// Copyright © 2017-present 650 Industries. All rights reserved.
+// COMPATIBILITY STUB - EXEventEmitter protocol removed in modules-core 58.1.0
+// This file provides backward compatibility for modules like expo-av that still reference it.
+
+#import <Foundation/Foundation.h>
+
+@protocol EXEventEmitter <NSObject>
+
+@optional
+- (void)sendEventWithName:(NSString *)name body:(id)body;
+
+@end
+
+@protocol EXEventEmitterService <NSObject>
+
+- (void)sendEventWithName:(NSString *)name body:(id)body;
+
+@end
+"""
+            with open(emitter_proto, "w", encoding="utf-8") as f:
+                f.write(stub_content)
+            print("Successfully created EXEventEmitter.h compatibility stub")
+        except Exception as e:
+            print(f"Error creating EXEventEmitter.h stub: {e}")
+
 if __name__ == "__main__":
     patch_expo()
