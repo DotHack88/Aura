@@ -14,7 +14,7 @@ on:
 jobs:
   build-ipa:
     name: Build Unsigned iOS IPA
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - name: Checkout Repository
@@ -23,7 +23,33 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+
+      - name: Select Xcode 26.4+
+        run: |
+          set -e
+          echo "Installed Xcode versions:"
+          ls /Applications | grep -i xcode || true
+          # Pick the highest installed Xcode_26.x bundle (SDK 58 requires Xcode 26+).
+          XCODE_APP=$(ls /Applications | grep -E '^Xcode_26' | sort -V | tail -n 1)
+          if [ -z "$XCODE_APP" ]; then
+            echo "No Xcode_26.x found; falling back to the highest Xcode bundle."
+            XCODE_APP=$(ls /Applications | grep -iE '^Xcode' | sort -V | tail -n 1)
+          fi
+          echo "Selecting: $XCODE_APP"
+          sudo xcode-select -s "/Applications/$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          # Fail loudly if the selected toolchain is older than Xcode 26.
+          python3 - <<'PY'
+          import re, subprocess, sys
+          out = subprocess.run(["xcodebuild", "-version"], capture_output=True, text=True).stdout
+          m = re.search(r"Xcode (\d+)", out)
+          xcode_major = int(m.group(1)) if m else 0
+          print(out.strip())
+          if xcode_major < 26:
+              sys.exit(f"ERROR: Xcode {xcode_major} is too old; SDK 58 requires Xcode 26+")
+          print(f"OK: Xcode {xcode_major} selected")
+          PY
 
       - name: Install Dependencies
         working-directory: ./ios

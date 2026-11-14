@@ -240,5 +240,29 @@ inline void getStringData("""
         except Exception as e:
             print(f"Error patching {jsutils}: {e}")
 
+    # 8. Patch JSIUtils.h: take `jsi::Value` by rvalue reference in errorFromValue
+    # `expo.errorFromValue(runtime.pointee, value.pointee)` is called from
+    # JavaScriptError.swift with a move-only `facebook.jsi.Value`. Passing it by value
+    # (`jsi::Value value`) makes Swift 6.1 / Xcode 16.4 emit a `load_take` on the
+    # move-only parameter during SILGen, which crashes swift-frontend with an
+    # ASSERT_failure in `emitConsumedLValueRecursive` / `emitLoadValueOperation`
+    # (SILBuilder.h:810, "isLoadableOrOpaque"). The crash targets
+    # `JavaScriptError.init(_:value:)` and aborts the ExpoModulesJSI xcframework
+    # build phase. Taking the value by rvalue reference (`jsi::Value&& value`) keeps
+    # the move semantics identical while avoiding the load_take.
+    if os.path.exists(jsutils):
+        try:
+            with open(jsutils, "r", encoding="utf-8") as f:
+                ev_content = f.read()
+            target_ev = "inline jsi::JSError errorFromValue(jsi::IRuntime &runtime, jsi::Value value) {"
+            replacement_ev = "inline jsi::JSError errorFromValue(jsi::IRuntime &runtime, jsi::Value&& value) {"
+            if target_ev in ev_content:
+                ev_content = ev_content.replace(target_ev, replacement_ev)
+                with open(jsutils, "w", encoding="utf-8") as f:
+                    f.write(ev_content)
+                print("Successfully patched JSIUtils.h (errorFromValue by rvalue ref)")
+        except Exception as e:
+            print(f"Error patching JSIUtils.h errorFromValue: {e}")
+
 if __name__ == "__main__":
     patch_expo()
