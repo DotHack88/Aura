@@ -76,10 +76,10 @@ def patch_expo():
             if "vector.push_back(consuming: propNameId)" in rt_content:
                 rt_content = rt_content.replace(
                     "vector.push_back(consuming: propNameId)",
-                    "expo.pushBackPropNameId(&vector, propNameId)"
+                    "vector = expo.pushBackPropNameId(vector, propNameId)"
                 )
             if "vector.push_back(propNameId)" in rt_content:
-                rt_content = rt_content.replace("vector.push_back(propNameId)", "expo.pushBackPropNameId(&vector, propNameId)")
+                rt_content = rt_content.replace("vector.push_back(propNameId)", "vector = expo.pushBackPropNameId(vector, propNameId)")
             with open(js_rt, "w", encoding="utf-8") as f:
                 f.write(rt_content)
             print("Successfully patched JavaScriptRuntime.swift (regex + vector.push_back)")
@@ -214,9 +214,14 @@ def patch_expo():
  Pushes a move-only `jsi::PropNameID` to the end of a `PropNameIds` vector. The value is taken
  by value and moved in, because `jsi::PropNameID`'s copy constructor is deleted and Swift 6.1
  has no `push_back(consuming:)` on the imported C++ `std::vector`.
+ *
+ * The vector is taken by value and returned by value rather than through an inout reference:
+ * passing a `PropNameIds &` (inout) from Swift crashes swift-frontend (ASSERT_failure in
+ * emitConsumedLValueRecursive) when the move-only element type is involved in the interop.
  */
-inline void pushBackPropNameId(HostObjectCallbacks::PropNameIds &vector, jsi::PropNameID propNameId) noexcept {
+inline HostObjectCallbacks::PropNameIds pushBackPropNameId(HostObjectCallbacks::PropNameIds vector, jsi::PropNameID propNameId) noexcept {
   vector.push_back(std::move(propNameId));
+  return vector;
 }
 
 inline void getStringData("""
