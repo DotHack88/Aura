@@ -264,5 +264,26 @@ inline void getStringData("""
         except Exception as e:
             print(f"Error patching JSIUtils.h errorFromValue: {e}")
 
+    # 9. Patch JavaScriptError.swift: add explicit 'consuming:' label for Swift 6.2/
+    # Xcode 26+ when passing a move-only field through the C++ FFI.
+    # `value.pointee` is a `facebook.jsi.Value` stored inside `JavaScriptValue`;
+    # moving it out of the struct requires the explicit `consuming:` label in the
+    # call to `expo.errorFromValue(...)`. Without it, Swift 6.2 emits:
+    #   error: missing argument label 'consuming:' in call
+    js_error = os.path.join(ios_dir, "node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptError.swift")
+    if os.path.exists(js_error):
+        try:
+            with open(js_error, "r", encoding="utf-8") as f:
+                je_content = f.read()
+            target_call = "expo.errorFromValue(runtime.pointee, value.pointee)"
+            replacement_call = "expo.errorFromValue(runtime.pointee, consuming: value.pointee)"
+            if target_call in je_content:
+                je_content = je_content.replace(target_call, replacement_call)
+                with open(js_error, "w", encoding="utf-8") as f:
+                    f.write(je_content)
+                print("Successfully patched JavaScriptError.swift (added consuming: label)")
+        except Exception as e:
+            print(f"Error patching JavaScriptError.swift: {e}")
+
 if __name__ == "__main__":
     patch_expo()
