@@ -55,9 +55,6 @@ jobs:
         working-directory: ./ios
         run: npm install --legacy-peer-deps
 
-      - name: Patch Expo Swift packages for Xcode toolchain
-        run: python3 .github/scripts/patch-expo.py
-
       - name: Run Expo Prebuild
         working-directory: ./ios
         run: npx expo prebuild --platform ios --clean --no-install
@@ -65,6 +62,9 @@ jobs:
       - name: Install CocoaPods
         working-directory: ./ios/ios
         run: pod install
+
+      - name: Patch Expo for Xcode 26 / modules-core compatibility
+        run: python3 .github/scripts/patch-expo.py
 
       - name: Build Xcode Archive (Unsigned)
         working-directory: ./ios/ios
