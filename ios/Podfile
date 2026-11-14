@@ -1,0 +1,33 @@
+require_relative '../node_modules/expo/scripts/autolinking'
+require_relative '../node_modules/react-native/scripts/react_native_pods'
+require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+
+platform :ios, '16.4'
+
+target 'Aura' do
+  use_expo_modules!
+
+  config = use_config(:expo_config)
+
+  post_install do |installer|
+    # Create EXEventEmitter.h compatibility stub
+    # This header was removed from expo-modules-core 58.1.0+ but is still
+    # required by expo-av@15.1.x
+    emitter_header = File.join(installer.pod_target_sources['ExpoModulesCore'].root, 'ios', 'Legacy', 'Protocols', 'EXEventEmitter.h')
+    FileUtils.mkdir_p(File.dirname(emitter_header)) unless File.directory?(File.dirname(emitter_header))
+    File.write(emitter_header, <<~OBJC)
+      // COMPATIBILITY STUB - EXEventEmitter protocol removed in modules-core 58.1.0
+      #import <Foundation/Foundation.h>
+
+      @protocol EXEventEmitter <NSObject>
+      @optional
+      - (void)sendEventWithName:(NSString *)name body:(id)body;
+      @end
+
+      @protocol EXEventEmitterService <NSObject>
+      - (void)sendEventWithName:(NSString *)name body:(id)body;
+      @end
+    OBJC
+    puts "Created EXEventEmitter.h compatibility stub"
+  end
+end
