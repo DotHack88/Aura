@@ -333,6 +333,36 @@ inline void getStringData("""
         except Exception as e:
             print(f"Error creating EXEventEmitter.h stub at {target}: {e}")
 
+    # Also create EXEventEmitterService.h as a separate header (some modules import it directly)
+    service_stub = """// Copyright © 2017-present 650 Industries. All rights reserved.
+// COMPATIBILITY STUB - EXEventEmitterService protocol removed in modules-core 58.1.0
+
+#import <Foundation/Foundation.h>
+
+@protocol EXEventEmitterService <NSObject>
+
+- (void)sendEventWithName:(NSString *)name body:(id)body;
+
+@end
+"""
+    service_paths = [
+        os.path.join(ios_dir, "node_modules/expo-modules-core/ios/Legacy/Protocols/EXEventEmitterService.h"),
+        os.path.join(ios_dir, "ios/Pods/Headers/Public/ExpoModulesCore/EXEventEmitterService.h"),
+        os.path.join(ios_dir, "ios/Pods/ExpoModulesCore/ExpoModulesCore.xcframework/ios-arm64/ExpoModulesCore.framework/Headers/EXEventEmitterService.h"),
+        os.path.join(ios_dir, "ios/Pods/ExpoModulesCore/ExpoModulesCore.xcframework/ios-arm64_x86_64-simulator/ExpoModulesCore.framework/Headers/EXEventEmitterService.h"),
+    ]
+    for match in glob.glob(os.path.join(ios_dir, "ios/Pods/**/ExpoModulesCore.framework/Headers"), recursive=True):
+        service_paths.append(os.path.join(match, "EXEventEmitterService.h"))
+
+    for target in service_paths:
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(service_stub)
+            print(f"Successfully created EXEventEmitterService.h stub at: {target}")
+        except Exception as e:
+            print(f"Error creating EXEventEmitterService.h stub at {target}: {e}")
+
     # 11. Create EXLegacyExpoViewProtocol.h compatibility stub for modules-core 58.1.0+
     # expo-modules-core 58.1.0 removed EXLegacyExpoViewProtocol.h.
     # expo-av@15.1.x's EXVideoView still declares conformance to this protocol
