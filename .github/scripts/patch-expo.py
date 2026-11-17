@@ -333,5 +333,44 @@ inline void getStringData("""
         except Exception as e:
             print(f"Error creating EXEventEmitter.h stub at {target}: {e}")
 
+    # 11. Create EXLegacyExpoViewProtocol.h compatibility stub for modules-core 58.1.0+
+    # expo-modules-core 58.1.0 removed EXLegacyExpoViewProtocol.h.
+    # expo-av@15.1.x's EXVideoView still declares conformance to this protocol
+    # (<ExpoModulesCore/EXLegacyExpoViewProtocol.h>) but does not implement any of
+    # its methods — all protocol requirements were optional. This stub restores the
+    # header so the prebuilt ExpoModulesCore.xcframework can satisfy the import.
+    legacy_view_stub = """// Copyright © 2017-present 650 Industries. All rights reserved.
+// COMPATIBILITY STUB - EXLegacyExpoViewProtocol removed in modules-core 58.1.0
+// This file provides backward compatibility for expo-av which still references it.
+
+#import <Foundation/Foundation.h>
+
+@protocol EXLegacyExpoViewProtocol <NSObject>
+
+@optional
+// Protocol removed from expo-modules-core 58.1.0. All methods were optional.
+// expo-av's EXVideoView conforms to this protocol without implementing any methods.
+
+@end
+"""
+    legacy_view_paths = [
+        os.path.join(ios_dir, "node_modules/expo-modules-core/ios/Legacy/Protocols/EXLegacyExpoViewProtocol.h"),
+        os.path.join(ios_dir, "ios/Pods/Headers/Public/ExpoModulesCore/EXLegacyExpoViewProtocol.h"),
+        os.path.join(ios_dir, "ios/Pods/ExpoModulesCore/ExpoModulesCore.xcframework/ios-arm64/ExpoModulesCore.framework/Headers/EXLegacyExpoViewProtocol.h"),
+        os.path.join(ios_dir, "ios/Pods/ExpoModulesCore/ExpoModulesCore.xcframework/ios-arm64_x86_64-simulator/ExpoModulesCore.framework/Headers/EXLegacyExpoViewProtocol.h"),
+    ]
+
+    for match in glob.glob(os.path.join(ios_dir, "ios/Pods/**/ExpoModulesCore.framework/Headers"), recursive=True):
+        legacy_view_paths.append(os.path.join(match, "EXLegacyExpoViewProtocol.h"))
+
+    for target in legacy_view_paths:
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(legacy_view_stub)
+            print(f"Successfully created EXLegacyExpoViewProtocol.h stub at: {target}")
+        except Exception as e:
+            print(f"Error creating EXLegacyExpoViewProtocol.h stub at {target}: {e}")
+
 if __name__ == "__main__":
     patch_expo()
