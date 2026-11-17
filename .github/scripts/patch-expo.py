@@ -392,5 +392,75 @@ inline void getStringData("""
         except Exception as e:
             print(f"Error patching VideoViewModule.swift: {e}")
 
+    # 13. Create EXFatal/EXErrorWithMessage compatibility stubs for modules-core 58.x+
+    # These macros were removed from EXDefines.h in modules-core 58.x but are still used by expo-av.
+    # We provide fallback definitions via a separate header that gets included before EXDefines.
+    compat_stub = """// Copyright © 2017-present 650 Industries. All rights reserved.
+// COMPATIBILITY STUB - Macros removed in modules-core 58.x
+// Provides backward compatibility for modules like expo-av that still reference these.
+
+#ifndef EX_COMPAT_MACROS_H
+#define EX_COMPAT_MACROS_H
+
+#import <Foundation/Foundation.h>
+
+#ifndef EXErrorWithMessage
+#define EXErrorWithMessage(msg) ([NSError errorWithDomain:@"EX" code:-1 userInfo:@{NSLocalizedDescriptionKey: msg}])
+#endif
+
+#ifndef EXFatal
+#define EXFatal(err) do { \
+    NSLog(@"%@ %@", @"[EX] FATAL:", err); \
+    abort(); \
+} while(0)
+#endif
+
+#endif /* EX_COMPAT_MACROS_H */
+"""
+    compat_paths = [
+        os.path.join(ios_dir, "node_modules/expo-modules-core/ios/Legacy/EXCompatMacros.h"),
+        os.path.join(ios_dir, "ios/Pods/Headers/Public/ExpoModulesCore/EXCompatMacros.h"),
+        os.path.join(ios_dir, "ios/Pods/ExpoModulesCore/ExpoModulesCore.xcframework/ios-arm64/ExpoModulesCore.framework/Headers/EXCompatMacros.h"),
+        os.path.join(ios_dir, "ios/Pods/ExpoModulesCore/ExpoModulesCore.xcframework/ios-arm64_x86_64-simulator/ExpoModulesCore.framework/Headers/EXCompatMacros.h"),
+    ]
+    for match in glob.glob(os.path.join(ios_dir, "ios/Pods/**/ExpoModulesCore.framework/Headers"), recursive=True):
+        compat_paths.append(os.path.join(match, "EXCompatMacros.h"))
+
+    for target in compat_paths:
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(compat_stub)
+            print(f"Successfully created EXCompatMacros.h stub at: {target}")
+        except Exception as e:
+            print(f"Error creating EXCompatMacros.h stub at {target}: {e}")
+
+    # Patch files that use EXFatal/EXErrorWithMessage to include the compat header first
+    affected_files = [
+        os.path.join(ios_dir, "node_modules/expo-av/ios/EXAV/EXAudioRecordingPermissionRequester.m"),
+        os.path.join(ios_dir, "node_modules/expo-av/ios/EXAV/EXAV.m"),
+        os.path.join(ios_dir, "node_modules/expo-av/ios/EXAV/EXAVPlayerData.m"),
+        os.path.join(ios_dir, "node_modules/expo-av/ios/EXAV/EXAVTV.m"),
+    ]
+    for filepath in affected_files:
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                # Add include after the first #import line if not already present
+                if "#import <ExpoModulesCore/EXCompatMacros.h>" not in content:
+                    lines = content.split("\n")
+                    # Find the first #import line and insert after it
+                    for i, line in enumerate(lines):
+                        if line.startswith("#import"):
+                            lines.insert(i + 1, "#import <ExpoModulesCore/EXCompatMacros.h>")
+                            break
+                    new_content = "\n".join(lines)
+                    with open(filepath, "w", encoding="utf-8") as f:
+                        f.write(new_content)
+                    print(f"Patched {filepath} to include EXCompatMacros.h")
+            except Exception as e:
+                print(f"Error patching {filepath}: {e}")
+
 if __name__ == "__main__":
     patch_expo()
