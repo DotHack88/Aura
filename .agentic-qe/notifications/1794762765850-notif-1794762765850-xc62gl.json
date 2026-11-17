@@ -1,0 +1,14 @@
+{
+  "type": "flaky_detected",
+  "title": "Flaky Workflows Detected",
+  "message": "1 workflows showing repeated failures: Build iOS IPA (Aura)",
+  "severity": "medium",
+  "metadata": {
+    "workflows": [
+      "Build iOS IPA (Aura)"
+    ]
+  },
+  "id": "notif-1794762765850-xc62gl",
+  "timestamp": 1794762765850,
+  "read": false
+}

@@ -1,0 +1,13 @@
+{
+  "type": "ci_failure",
+  "title": "CI Failure: Build iOS IPA (Aura)",
+  "message": "Workflow Build iOS IPA (Aura) run #43648914189 concluded: failure",
+  "severity": "high",
+  "metadata": {
+    "workflow": "Build iOS IPA (Aura)",
+    "runId": 43648914189
+  },
+  "id": "notif-1794764016851-z35p9b",
+  "timestamp": 1794764016851,
+  "read": false
+}

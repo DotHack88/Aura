@@ -1,0 +1,65 @@
+<h2>Quale struttura per la homepage di presentazione?</h2>
+<p class="subtitle">Tutti mantengono l'identità visiva Aura (bg scuro, glassmorphism, viola #a855f7). Scegli quella che preferisci.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:linear-gradient(160deg,#09090d,#12121a);padding:24px;min-height:220px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center">
+      <div style="width:64px;height:64px;border-radius:18px;background:linear-gradient(135deg,#a855f7,#7c3aed);margin-bottom:16px"></div>
+      <div style="font-size:22px;font-weight:700">Aura</div>
+      <div style="color:#94a3b8;font-size:13px;margin-top:6px">La tua musica, ovunque</div>
+      <div style="margin-top:18px;width:120px;height:34px;border-radius:99px;background:rgba(168,85,247,0.25)"></div>
+    </div>
+    <div class="card-body">
+      <h3>A — Centro eretto</h3>
+      <p>Hero centrato verticalmente: logo grande, tagline, un solo CTA. Niente griglia, solo scroll verso il basso per feature/stack/download.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:linear-gradient(160deg,#09090d,#12121a);padding:24px;min-height:220px">
+      <div style="font-size:18px;font-weight:700;margin-bottom:14px">Aura</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+        <div style="height:60px;border-radius:10px;background:rgba(168,85,247,0.18)"></div>
+        <div style="height:60px;border-radius:10px;background:rgba(168,85,247,0.12)"></div>
+        <div style="height:60px;border-radius:10px;background:rgba(168,85,247,0.12)"></div>
+        <div style="height:60px;border-radius:10px;background:rgba(168,85,247,0.12)"></div>
+        <div style="height:60px;border-radius:10px;background:rgba(168,85,247,0.12)"></div>
+        <div style="height:60px;border-radius:10px;background:rgba(168,85,247,0.12)"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Griglia feature</h3>
+      <p>Hero breve seguito subito da una griglia di feature card (6 slot). Ottima per mostrare a colpo d'occhio cosa fa l'app.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:linear-gradient(160deg,#09090d,#12121a);padding:24px;min-height:220px;display:flex;flex-direction:column;gap:10px">
+      <div style="height:44px;border-radius:8px;background:linear-gradient(90deg,rgba(168,85,247,0.4),rgba(124,58,237,0.1))"></div>
+      <div style="height:28px;border-radius:6px;width:60%;background:rgba(255,255,255,0.08)"></div>
+      <div style="height:14px;border-radius:4px;width:40%;background:rgba(255,255,255,0.05)"></div>
+      <div style="height:34px;border-radius:8px;width:100%;background:rgba(255,255,255,0.04);margin-top:6px"></div>
+      <div style="height:34px;border-radius:8px;width:100%;background:rgba(255,255,255,0.04)"></div>
+      <div style="height:34px;border-radius:8px;width:70%;background:rgba(255,255,255,0.04)"></div>
+    </div>
+    <div class="card-body">
+      <h3>C — Sezioni in flow</h3>
+      <p>Hero + sezioni consecutive (feature, stack, come funziona, tabella download). Più lunga da scrollare ma copre tutto il contenuto del README in un unico scorrimento.</p>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons" style="margin-top:24px">
+  <div class="pros"><h4>Pro (consigliato)</h4><ul>
+    <li><b>A</b>: massima impatto visivo, semplice, veloce da costruire</li>
+    <li><b>B</b>: ottima per chi cerca subito le feature</li>
+    <li><b>C</b>: copre tutto il contenuto del README senza salti</li>
+  </ul></div>
+  <div class="cons"><h4>Contro</h4><ul>
+    <li><b>A</b>: poco spazio per le feature, bisogna scrollare molto</li>
+    <li><b>B</b>: la griglia può sembrare "da template"</li>
+    <li><b>C</b>: meno d'impatto iniziale, più lunga</li>
+  </ul></div>
+</div>
+
+<p class="subtitle" style="margin-top:20px">Clicca una card per selezionare, poi scrivi qui che ne pensi.</p>

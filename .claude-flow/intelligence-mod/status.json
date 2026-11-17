@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "updatedMs": 1794763672841,
+  "guard": true,
+  "piiGuard": true,
+  "confirmReset": true,
+  "blocked": 0,
+  "scans": 0,
+  "commands": 0
+}

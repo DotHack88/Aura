@@ -1,0 +1,410 @@
+{
+  "entries": {
+    "cmd-1794736097766": {
+      "key": "cmd-1794736097766",
+      "value": "{\"command\":\"npm view claude-code-templates 2>&1 | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T09:48:17.766Z",
+      "lastAccessed": "2026-11-15T09:48:17.766Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T09:48:17.766Z"
+    },
+    "cmd-1794736134265": {
+      "key": "cmd-1794736134265",
+      "value": "{\"command\":\"npx claude-code-templates@latest --skill creative-design/frontend-design\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T09:48:54.265Z",
+      "lastAccessed": "2026-11-15T09:48:54.265Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T09:48:54.265Z"
+    },
+    "cmd-1794736155217": {
+      "key": "cmd-1794736155217",
+      "value": "{\"command\":\"ls -la \\\"/c/Users/Emanuele/AppData/Local/Temp/claude/a4384618d4ba1609/c196f901-bbf1-4ac1-aa85-b6a3cca14b3f/tasks/booh46vyh.output\\\" 2>&1; wc -l \\\"/c/Users/Emanuele/AppData/Local/Temp/claude/a4384618d4ba1609/c196f901-bbf1-4ac1-aa85-b6a3cca14b3f/tasks/booh46vyh.output\\\" 2>&1\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T09:49:15.217Z",
+      "lastAccessed": "2026-11-15T09:49:15.217Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T09:49:15.217Z"
+    },
+    "cmd-1794736194484": {
+      "key": "cmd-1794736194484",
+      "value": "{\"command\":\"npx claude-code-templates@latest --skill creative-design/ui-ux-pro-max\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T09:49:54.484Z",
+      "lastAccessed": "2026-11-15T09:49:54.484Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T09:49:54.484Z"
+    },
+    "cmd-1794736299976": {
+      "key": "cmd-1794736299976",
+      "value": "{\"command\":\"ls -la /c/Users/Emanuele/Muse/.claude/skills/ui-ux-pro-max/ 2>&1 | head -30; echo \\\"---\\\"; ls /c/Users/Emanuele/Muse/.claude/skills/ 2>&1\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T09:51:39.976Z",
+      "lastAccessed": "2026-11-15T09:51:39.976Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T09:51:39.976Z"
+    },
+    "cmd-1794736321100": {
+      "key": "cmd-1794736321100",
+      "value": "{\"command\":\"ls -la /c/Users/Emanuele/Muse/ 2>&1 | head -30; echo \\\"---PACKAGE---\\\"; cat /c/Users/Emanuele/Muse/package.json 2>/dev/null | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T09:52:01.100Z",
+      "lastAccessed": "2026-11-15T09:52:01.100Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T09:52:01.100Z"
+    },
+    "cmd-1794736331781": {
+      "key": "cmd-1794736331781",
+      "value": "{\"command\":\"ls -la /c/Users/Emanuele/Muse/.claude/skills/ui-ux-pro-max/data/ 2>&1; echo \\\"---SCRIPTS---\\\"; ls -la /c/Users/Emanuele/Muse/.claude/skills/ui-ux-pro-max/scripts/ 2>&1\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T09:52:11.781Z",
+      "lastAccessed": "2026-11-15T09:52:11.781Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T09:52:11.781Z"
+    },
+    "cmd-1794736353425": {
+      "key": "cmd-1794736353425",
+      "value": "{\"command\":\"head -5 /c/Users/Emanuele/Muse/.claude/skills/ui-ux-pro-max/data/colors.csv; echo \\\"---STYLE---\\\"; head -10 /c/Users/Emanuele/Muse/.claude/skills/ui-ux-pro-max/data/styles.csv\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T09:52:33.425Z",
+      "lastAccessed": "2026-11-15T09:52:33.425Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T09:52:33.425Z"
+    },
+    "cmd-1794736452712": {
+      "key": "cmd-1794736452712",
+      "value": "{\"command\":\"mkdir -p /c/Users/Emanuele/Muse/presentazioni\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T09:54:12.712Z",
+      "lastAccessed": "2026-11-15T09:54:12.712Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T09:54:12.712Z"
+    },
+    "cmd-1794736577451": {
+      "key": "cmd-1794736577451",
+      "value": "{\"command\":\"ls -la /c/Users/Emanuele/Muse/presentazioni/ 2>&1\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T09:56:17.451Z",
+      "lastAccessed": "2026-11-15T09:56:17.451Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T09:56:17.451Z"
+    },
+    "cmd-1794738262189": {
+      "key": "cmd-1794738262189",
+      "value": "{\"command\":\"mkdir -p /c/Users/Emanuele/Muse/presentazioni/aura\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T10:24:22.189Z",
+      "lastAccessed": "2026-11-15T10:24:22.189Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T10:24:22.189Z"
+    },
+    "cmd-1794738356965": {
+      "key": "cmd-1794738356965",
+      "value": "{\"command\":\"cd \\\"/c/Users/Emanuele/Muse/presentazioni\\\" && pwd && ls -la\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T10:25:56.965Z",
+      "lastAccessed": "2026-11-15T10:25:56.965Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T10:25:56.965Z"
+    },
+    "cmd-1794738362991": {
+      "key": "cmd-1794738362991",
+      "value": "{\"command\":\"ls -la aura/\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T10:26:02.991Z",
+      "lastAccessed": "2026-11-15T10:26:02.991Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T10:26:02.991Z"
+    },
+    "cmd-1794762202212": {
+      "key": "cmd-1794762202212",
+      "value": "{\"command\":\"ls -la && echo \\\"---README---\\\" && ls *.md 2>/dev/null && echo \\\"---package---\\\" && cat package.json 2>/dev/null | head -50\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:03:22.212Z",
+      "lastAccessed": "2026-11-15T17:03:22.212Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:03:22.212Z"
+    },
+    "cmd-1794762215570": {
+      "key": "cmd-1794762215570",
+      "value": "{\"command\":\"echo \\\"===web===\\\"; ls -la web; echo; echo \\\"===presentazioni===\\\"; ls -la presentazioni\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:03:35.570Z",
+      "lastAccessed": "2026-11-15T17:03:35.570Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:03:35.570Z"
+    },
+    "cmd-1794762215659": {
+      "key": "cmd-1794762215659",
+      "value": "{\"command\":\"echo \\\"===README===\\\"; cat README.md; echo; echo \\\"===analisi_muse.md===\\\"; head -80 analisi_muse.md\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:03:35.659Z",
+      "lastAccessed": "2026-11-15T17:03:35.659Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:03:35.659Z"
+    },
+    "cmd-1794762227749": {
+      "key": "cmd-1794762227749",
+      "value": "{\"command\":\"cd web && echo \\\"===package.json===\\\"; cat package.json; echo; echo \\\"===AGENTS.md===\\\"; cat AGENTS.md; echo; echo \\\"===src===\\\"; find src -type f | head -50; echo; echo \\\"===presentazioni/aura===\\\"; find ../presentazioni/aura -type f | head -50\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:03:47.749Z",
+      "lastAccessed": "2026-11-15T17:03:47.749Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:03:47.749Z"
+    },
+    "cmd-1794762238496": {
+      "key": "cmd-1794762238496",
+      "value": "{\"command\":\"cd ../web && echo \\\"===layout===\\\"; cat src/app/layout.tsx; echo \\\"===globals===\\\"; cat src/app/globals.css; echo \\\"===page===\\\"; head -60 src/app/page.tsx\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:03:58.496Z",
+      "lastAccessed": "2026-11-15T17:03:58.496Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:03:58.496Z"
+    },
+    "cmd-1794762238644": {
+      "key": "cmd-1794762238644",
+      "value": "{\"command\":\"cd ../presentazioni/aura && ls -la && echo \\\"---\\\" && find . -type f | head -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:03:58.644Z",
+      "lastAccessed": "2026-11-15T17:03:58.644Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:03:58.644Z"
+    },
+    "cmd-1794762251620": {
+      "key": "cmd-1794762251620",
+      "value": "{\"command\":\"cd ../web && cat README.md\",\"exitCode\":1,\"success\":false}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:04:11.620Z",
+      "lastAccessed": "2026-11-15T17:04:11.620Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:04:11.620Z"
+    },
+    "cmd-1794762258173": {
+      "key": "cmd-1794762258173",
+      "value": "{\"command\":\"cat /c/Users/Emanuele/Muse/web/README.md; echo \\\"===next.config===\\\"; cat /c/Users/Emanuele/Muse/web/next.config.ts\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:04:18.173Z",
+      "lastAccessed": "2026-11-15T17:04:18.173Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:04:18.173Z"
+    },
+    "cmd-1794762301799": {
+      "key": "cmd-1794762301799",
+      "value": "{\"command\":\"ls /c/Users/Emanuele/Muse/.claude/skills/ui-ux-pro-max/scripts/ 2>/dev/null; echo \\\"---\\\"; ls /c/Users/Emanuele/Muse/.claude/skills/ 2>/dev/null\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:05:01.799Z",
+      "lastAccessed": "2026-11-15T17:05:01.799Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:05:01.799Z"
+    },
+    "cmd-1794762314059": {
+      "key": "cmd-1794762314059",
+      "value": "{\"command\":\"cd /c/Users/Emanuele/Muse/.claude/skills/ui-ux-pro-max && python3 scripts/search.py \\\"music streaming app dark purple\\\" --design-system -p \\\"Muse\\\" 2>&1 | head -120\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:05:14.059Z",
+      "lastAccessed": "2026-11-15T17:05:14.059Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:05:14.059Z"
+    },
+    "cmd-1794762325037": {
+      "key": "cmd-1794762325037",
+      "value": "{\"command\":\"which python python3 py 2>/dev/null; ls /c/Users/Emanuele/Muse/.claude/skills/ui-ux-pro-max/scripts/\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:05:25.037Z",
+      "lastAccessed": "2026-11-15T17:05:25.037Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:05:25.037Z"
+    },
+    "cmd-1794762338586": {
+      "key": "cmd-1794762338586",
+      "value": "{\"command\":\"/c/Users/Emanuele/AppData/Local/Programs/Python/Python314/python scripts/search.py \\\"music streaming app dark purple\\\" --design-system -p \\\"Muse\\\" 2>&1 | head -150\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:05:38.586Z",
+      "lastAccessed": "2026-11-15T17:05:38.586Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:05:38.586Z"
+    },
+    "cmd-1794762352850": {
+      "key": "cmd-1794762352850",
+      "value": "{\"command\":\"PYTHONIOENCODING=utf-8 /c/Users/Emanuele/AppData/Local/Programs/Python/Python314/python scripts/search.py \\\"music streaming app dark purple\\\" --design-system -p \\\"Muse\\\" 2>&1 | head -150\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:05:52.850Z",
+      "lastAccessed": "2026-11-15T17:05:52.850Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:05:52.850Z"
+    },
+    "cmd-1794762993958": {
+      "key": "cmd-1794762993958",
+      "value": "{\"command\":\"ls -la && echo \\\"---README---\\\" && head -50 README.md 2>/dev/null; echo \\\"---package.json---\\\"; cat package.json 2>/dev/null | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:16:33.958Z",
+      "lastAccessed": "2026-11-15T17:16:33.958Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:16:33.958Z"
+    },
+    "cmd-1794762994134": {
+      "key": "cmd-1794762994134",
+      "value": "{\"command\":\"git log --oneline -15 && echo \\\"---STATUS---\\\" && git status --short | head -20\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:16:34.134Z",
+      "lastAccessed": "2026-11-15T17:16:34.134Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:16:34.134Z"
+    },
+    "cmd-1794763009964": {
+      "key": "cmd-1794763009964",
+      "value": "{\"command\":\"echo \\\"=== web ===\\\"; find web -maxdepth 3 -type f 2>/dev/null | head -40; echo \\\"=== docs ===\\\"; find docs -maxdepth 2 -type f 2>/dev/null | head -30; echo \\\"=== analisi_muse ===\\\"; head -60 analisi_muse.md 2>/dev/null\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:16:49.964Z",
+      "lastAccessed": "2026-11-15T17:16:49.964Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:16:49.964Z"
+    },
+    "cmd-1794763026166": {
+      "key": "cmd-1794763026166",
+      "value": "{\"command\":\"cd web && echo \\\"=== package.json ===\\\" && cat package.json 2>/dev/null && echo \\\"=== .gitignore ===\\\" && cat .gitignore 2>/dev/null && echo \\\"=== .env.local ===\\\" && cat .env.local 2>/dev/null && echo \\\"=== src tree ===\\\" && find src -type f 2>/dev/null | head -40\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:17:06.166Z",
+      "lastAccessed": "2026-11-15T17:17:06.166Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:17:06.166Z"
+    },
+    "cmd-1794763042449": {
+      "key": "cmd-1794763042449",
+      "value": "{\"command\":\"echo \\\"=== layout.tsx ===\\\" && cat src/app/layout.tsx && echo \\\"=== page.tsx ===\\\" && cat src/app/page.tsx && echo \\\"=== globals.css ===\\\" && cat src/app/globals.css\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:17:22.449Z",
+      "lastAccessed": "2026-11-15T17:17:22.449Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:17:22.449Z"
+    },
+    "cmd-1794763065596": {
+      "key": "cmd-1794763065596",
+      "value": "{\"command\":\"echo \\\"=== routes ===\\\" && find src/app -name \\\"page.tsx\\\" -o -name \\\"layout.tsx\\\" | sort && echo \\\"=== manifest ===\\\" && cat public/manifest.json 2>/dev/null | head -40; echo \\\"=== app name refs ===\\\"; grep -rn \\\"Aura\\\" src/app/layout.tsx | head; echo \\\"=== package in app ===\\\"; grep -rn \\\"muse\\\" ../app/src/main/AndroidManifest.xml 2>/dev/null | head -5\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:17:45.596Z",
+      "lastAccessed": "2026-11-15T17:17:45.596Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:17:45.596Z"
+    },
+    "cmd-1794763081645": {
+      "key": "cmd-1794763081645",
+      "value": "{\"command\":\"claude mcp list 2>&1 || true\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:18:01.645Z",
+      "lastAccessed": "2026-11-15T17:18:01.645Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:18:01.645Z"
+    },
+    "cmd-1794763095449": {
+      "key": "cmd-1794763095449",
+      "value": "{\"command\":\"cat ~/.claude/settings.json 2>/dev/null || echo \\\"NOT FOUND\\\"; echo \\\"---\\\"; cat ~/.claude/settings.local.json 2>/dev/null || echo \\\"NOT FOUND\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:18:15.449Z",
+      "lastAccessed": "2026-11-15T17:18:15.449Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:18:15.449Z"
+    },
+    "cmd-1794763108722": {
+      "key": "cmd-1794763108722",
+      "value": "{\"command\":\"claude mcp add playwright -- npx @playwright/mcp@latest 2>&1\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:18:28.722Z",
+      "lastAccessed": "2026-11-15T17:18:28.722Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:18:28.722Z"
+    },
+    "cmd-1794763129782": {
+      "key": "cmd-1794763129782",
+      "value": "{\"command\":\"cat ~/.claude-free/.claude.json 2>/dev/null | python3 -c \\\"import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('mcpServers',{}), indent=2))\\\" 2>/dev/null || cat ~/.claude-free/.claude.json 2>/dev/null\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:18:49.782Z",
+      "lastAccessed": "2026-11-15T17:18:49.782Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:18:49.782Z"
+    },
+    "cmd-1794763144378": {
+      "key": "cmd-1794763144378",
+      "value": "{\"command\":\"cat ~/.claude-free/.claude.json | python3 -c \\\"import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('mcpServers',{}), indent=2))\\\"\",\"exitCode\":49,\"success\":false}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:19:04.378Z",
+      "lastAccessed": "2026-11-15T17:19:04.378Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:19:04.378Z"
+    },
+    "cmd-1794763170724": {
+      "key": "cmd-1794763170724",
+      "value": "{\"command\":\"claude mcp list 2>&1 | grep -i playwright || echo \\\"not listed\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:19:30.724Z",
+      "lastAccessed": "2026-11-15T17:19:30.724Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:19:30.724Z"
+    },
+    "cmd-1794763715756": {
+      "key": "cmd-1794763715756",
+      "value": "{\"command\":\"ls -la && echo \\\"---SITE---\\\" && ls -la site 2>/dev/null || echo \\\"no site dir\\\"\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:28:35.756Z",
+      "lastAccessed": "2026-11-15T17:28:35.756Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:28:35.756Z"
+    },
+    "cmd-1794763730007": {
+      "key": "cmd-1794763730007",
+      "value": "{\"command\":\"ls -la web 2>/dev/null; echo \\\"---\\\"; ls -la app 2>/dev/null | head -30\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:28:50.007Z",
+      "lastAccessed": "2026-11-15T17:28:50.007Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:28:50.007Z"
+    },
+    "cmd-1794763758296": {
+      "key": "cmd-1794763758296",
+      "value": "{\"command\":\"ls -la \\\"C:\\\\Users\\\\Emanuele\\\\Muse(web)\\\\src\\\" 2>/dev/null; echo \\\"---\\\"; ls \\\"C:\\\\Users\\\\Emanuele\\\\Muse(web)\\\\public\\\" 2>/dev/null\",\"exitCode\":2,\"success\":false}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:29:18.296Z",
+      "lastAccessed": "2026-11-15T17:29:18.296Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:29:18.296Z"
+    },
+    "cmd-1794763775309": {
+      "key": "cmd-1794763775309",
+      "value": "{\"command\":\"cd \\\"C:\\\\Users\\\\Emanuele\\\\Muse(web)\\\" && ls -la && echo \\\"---SRC---\\\" && ls -la src && echo \\\"---PUBLIC---\\\" && ls -la public && echo \\\"---PKG---\\\" && cat package.json\",\"exitCode\":1,\"success\":false}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:29:35.309Z",
+      "lastAccessed": "2026-11-15T17:29:35.309Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:29:35.309Z"
+    },
+    "cmd-1794763784051": {
+      "key": "cmd-1794763784051",
+      "value": "{\"command\":\"cd web && pwd && ls -la && echo \\\"---SRC---\\\" && ls -la src && echo \\\"---PUBLIC---\\\" && ls -la public && echo \\\"---PKG---\\\" && cat package.json\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:29:44.051Z",
+      "lastAccessed": "2026-11-15T17:29:44.051Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:29:44.051Z"
+    },
+    "cmd-1794763792189": {
+      "key": "cmd-1794763792189",
+      "value": "{\"command\":\"ls -la src/app src/components src/lib src/store src/types\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:29:52.189Z",
+      "lastAccessed": "2026-11-15T17:29:52.189Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:29:52.189Z"
+    },
+    "cmd-1794763829379": {
+      "key": "cmd-1794763829379",
+      "value": "{\"command\":\"mkdir -p site && ls -la site\",\"exitCode\":0,\"success\":true}",
+      "namespace": "commands",
+      "storedAt": "2026-11-15T17:30:29.379Z",
+      "lastAccessed": "2026-11-15T17:30:29.379Z",
+      "accessCount": 0,
+      "expiresAt": "2026-12-15T17:30:29.379Z"
+    }
+  },
+  "version": "3.0.0"
+}
