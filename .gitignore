@@ -36,3 +36,7 @@ google-services.json
 .env.local
 .env.*.local
 
+# Web Vercel standalone repo
+web/
+
+
