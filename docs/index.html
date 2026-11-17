@@ -1,0 +1,1722 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aura — Non soltanto un player musicale, ma un'esperienza di ascolto personalizzata</title>
+  <meta name="description" content="Aura è un progetto musicale nativo Android (Kotlin + Jetpack Compose) e Web PWA su Vercel. Riproduzione in background, testi sincronizzati, libreria offline, Aura Radio e sincronizzazione Firebase.">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  
+  <!-- Font Google: Plus Jakarta Sans & Space Grotesk -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+
+  <style>
+    /* ─── Aura Design Tokens & Theme ─────────────────────────────────────────── */
+    :root {
+      --aura-bg:          #09090d;
+      --aura-surface:     #12121a;
+      --aura-surface-2:   #1a1a26;
+      --aura-surface-3:   #252536;
+      --aura-border:      rgba(255, 255, 255, 0.08);
+      --aura-border-2:    rgba(255, 255, 255, 0.15);
+      --aura-accent:      #a855f7;
+      --aura-accent-2:    #7c3aed;
+      --aura-accent-glow: rgba(168, 85, 247, 0.35);
+      --aura-accent-gradient: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #06b6d4 100%);
+      --aura-text:        #f8fafc;
+      --aura-text-2:      #94a3b8;
+      --aura-text-3:      #64748b;
+      --aura-green:       #10b981;
+      --aura-cyan:        #06b6d4;
+      --aura-gold:        #f59e0b;
+      --aura-radius:      16px;
+      --aura-radius-lg:   24px;
+      --aura-radius-xl:   32px;
+      --font-main:        'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --font-display:     'Space Grotesk', var(--font-main);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background-color: var(--aura-bg);
+      color: var(--aura-text);
+      font-family: var(--font-main);
+      overflow-x: hidden;
+    }
+
+    body {
+      background-color: var(--aura-bg);
+      min-height: 100vh;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* Ambient Pulsing Glow Lights */
+    .ambient-glow {
+      position: fixed;
+      width: 750px;
+      height: 750px;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 0;
+      filter: blur(140px);
+      opacity: 0.20;
+      transition: transform 0.6s ease;
+    }
+    .glow-top {
+      top: -200px;
+      left: 15%;
+      background: radial-gradient(circle, #8b5cf6, #ec4899 70%, transparent);
+    }
+    .glow-middle {
+      top: 45%;
+      right: -150px;
+      background: radial-gradient(circle, #06b6d4, #7c3aed 70%, transparent);
+    }
+    .glow-bottom {
+      bottom: -150px;
+      left: 20%;
+      background: radial-gradient(circle, #a855f7, #3b82f6 70%, transparent);
+    }
+
+    /* Glass Effect Utilities */
+    .glass-nav {
+      background: rgba(9, 9, 13, 0.75);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border-bottom: 1px solid var(--aura-border);
+    }
+
+    .glass-card {
+      background: rgba(18, 18, 26, 0.6);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--aura-border);
+      border-radius: var(--aura-radius-lg);
+      transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .glass-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(800px circle at var(--mouse-x, 0) var(--mouse-y, 0), rgba(255, 255, 255, 0.06), transparent 40%);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+    }
+
+    .glass-card:hover {
+      border-color: rgba(168, 85, 247, 0.35);
+      transform: translateY(-4px);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6), 0 0 30px -10px var(--aura-accent-glow);
+    }
+
+    .glass-card:hover::before {
+      opacity: 1;
+    }
+
+    /* Typography Helpers */
+    .gradient-text {
+      background: var(--aura-accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      display: inline-block;
+    }
+
+    .gradient-cyan {
+      background: linear-gradient(135deg, #06b6d4, #3b82f6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    /* Standard Layout Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Navigation Bar */
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      transition: all 0.3s ease;
+    }
+
+    .nav-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .logo-img {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      box-shadow: 0 4px 18px var(--aura-accent-glow);
+      transition: transform 0.3s ease;
+    }
+
+    .logo-container:hover .logo-img {
+      transform: scale(1.08) rotate(3deg);
+    }
+
+    .logo-title {
+      font-weight: 800;
+      font-size: 1.4rem;
+      letter-spacing: -0.03em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge-version {
+      font-size: 0.72rem;
+      font-weight: 700;
+      background: rgba(168, 85, 247, 0.15);
+      color: var(--aura-accent);
+      padding: 3px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--aura-text-2);
+      text-decoration: none;
+      font-size: 0.92rem;
+      font-weight: 500;
+      transition: color 0.2s ease;
+    }
+
+    .nav-links a:hover {
+      color: var(--aura-text);
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn-nav-gh {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--aura-text-2);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--aura-border);
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+
+    .btn-nav-gh:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-nav-cta {
+      background: var(--aura-accent-gradient);
+      color: #fff;
+      padding: 9px 20px;
+      border-radius: 999px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      text-decoration: none;
+      box-shadow: 0 4px 18px var(--aura-accent-glow);
+      transition: all 0.25s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-nav-cta:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(168, 85, 247, 0.5);
+    }
+
+    /* Hero Section */
+    .hero-section {
+      padding: 160px 0 90px;
+      text-align: center;
+      position: relative;
+    }
+
+    .pill-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 8px 20px;
+      border-radius: 999px;
+      font-size: 0.86rem;
+      font-weight: 600;
+      color: var(--aura-text-2);
+      margin-bottom: 26px;
+      backdrop-filter: blur(12px);
+    }
+
+    .pill-tag .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background-color: var(--aura-green);
+      border-radius: 50%;
+      box-shadow: 0 0 12px var(--aura-green);
+      animation: pulseDot 2s infinite;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.3); }
+    }
+
+    .hero-title {
+      font-size: clamp(2.6rem, 6vw, 4.6rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+      margin-bottom: 24px;
+      max-width: 960px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .hero-slogan-box {
+      background: rgba(168, 85, 247, 0.08);
+      border: 1px solid rgba(168, 85, 247, 0.25);
+      border-radius: var(--aura-radius);
+      padding: 16px 28px;
+      max-width: 760px;
+      margin: 0 auto 28px;
+      backdrop-filter: blur(14px);
+    }
+
+    .hero-slogan-text {
+      font-size: clamp(1.15rem, 2.2vw, 1.45rem);
+      font-weight: 700;
+      color: var(--aura-text);
+      line-height: 1.4;
+    }
+
+    .hero-subtitle {
+      font-size: clamp(1rem, 1.8vw, 1.2rem);
+      color: var(--aura-text-2);
+      line-height: 1.6;
+      max-width: 720px;
+      margin: 0 auto 40px;
+      font-weight: 400;
+    }
+
+    .hero-cta-group {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 48px;
+    }
+
+    .btn-primary {
+      background: var(--aura-accent-gradient);
+      color: #fff;
+      font-weight: 700;
+      font-size: 1.05rem;
+      padding: 16px 36px;
+      border-radius: var(--aura-radius-xl);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 8px 32px var(--aura-accent-glow);
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-3px) scale(1.02);
+      box-shadow: 0 12px 42px rgba(168, 85, 247, 0.6);
+    }
+
+    .btn-vercel {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--aura-border-2);
+      color: var(--aura-text);
+      font-weight: 600;
+      font-size: 1.02rem;
+      padding: 16px 30px;
+      border-radius: var(--aura-radius-xl);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      backdrop-filter: blur(12px);
+      transition: all 0.3s ease;
+    }
+
+    .btn-vercel:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: translateY(-2px);
+    }
+
+    .btn-github {
+      background: transparent;
+      border: 1px solid var(--aura-border);
+      color: var(--aura-text-2);
+      font-weight: 600;
+      font-size: 1.02rem;
+      padding: 16px 26px;
+      border-radius: var(--aura-radius-xl);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      transition: all 0.3s ease;
+    }
+
+    .btn-github:hover {
+      color: #fff;
+      border-color: var(--aura-border-2);
+      background: rgba(255, 255, 255, 0.05);
+      transform: translateY(-2px);
+    }
+
+    .hero-badges {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 32px;
+      flex-wrap: wrap;
+      color: var(--aura-text-3);
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    .hero-badge-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hero-badge-item svg {
+      color: var(--aura-accent);
+    }
+
+    /* Section Headers */
+    .section-header {
+      text-align: center;
+      max-width: 760px;
+      margin: 0 auto 64px;
+    }
+
+    .section-tag {
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--aura-accent);
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .section-title {
+      font-size: clamp(2.1rem, 4.2vw, 3.2rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 16px;
+    }
+
+    .section-desc {
+      color: var(--aura-text-2);
+      font-size: 1.1rem;
+      line-height: 1.6;
+    }
+
+    /* Interactive Showcase Section (App Mockup) */
+    .showcase-section {
+      padding: 40px 0 120px;
+    }
+
+    .showcase-wrapper {
+      background: radial-gradient(ellipse at top, rgba(168, 85, 247, 0.15), transparent 70%), var(--aura-surface);
+      border: 1px solid var(--aura-border);
+      border-radius: var(--aura-radius-xl);
+      padding: 48px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.85);
+      position: relative;
+    }
+
+    .showcase-nav {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 40px;
+      flex-wrap: wrap;
+    }
+
+    .tab-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--aura-border);
+      color: var(--aura-text-2);
+      padding: 10px 22px;
+      border-radius: 999px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tab-btn:hover {
+      color: var(--aura-text);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .tab-btn.active {
+      background: var(--aura-text);
+      color: var(--aura-bg);
+      border-color: var(--aura-text);
+      box-shadow: 0 4px 20px rgba(255, 255, 255, 0.3);
+    }
+
+    .device-stage {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 560px;
+      position: relative;
+    }
+
+    .view-container {
+      display: none;
+      animation: fadeInScale 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      width: 100%;
+    }
+
+    .view-container.active {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    @keyframes fadeInScale {
+      from { opacity: 0; transform: scale(0.96) translateY(10px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .phone-mockup {
+      width: 320px;
+      background: #000;
+      border: 11px solid #1f1f2e;
+      border-radius: 46px;
+      box-shadow: 0 25px 70px -15px rgba(0, 0, 0, 0.9), 0 0 40px -10px var(--aura-accent-glow);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .phone-notch {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90px;
+      height: 20px;
+      background: #000;
+      border-radius: 20px;
+      z-index: 10;
+    }
+
+    .phone-screen-img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .landscape-mockup {
+      max-width: 820px;
+      width: 100%;
+      background: #000;
+      border: 12px solid #1f1f2e;
+      border-radius: 36px;
+      box-shadow: 0 30px 90px -20px rgba(0, 0, 0, 0.95), 0 0 50px -10px var(--aura-accent-glow);
+      overflow: hidden;
+    }
+
+    .landscape-screen-img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .lyrics-mockup {
+      max-width: 540px;
+      width: 100%;
+      background: linear-gradient(180deg, #180d26 0%, #0d0a14 100%);
+      border: 1px solid rgba(168, 85, 247, 0.25);
+      border-radius: 28px;
+      padding: 32px 28px;
+      box-shadow: 0 25px 70px rgba(0, 0, 0, 0.8), 0 0 30px rgba(168, 85, 247, 0.2);
+    }
+
+    .lyrics-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      margin-bottom: 24px;
+    }
+
+    .lyrics-thumb {
+      width: 52px;
+      height: 52px;
+      border-radius: 12px;
+      object-fit: cover;
+    }
+
+    .lyrics-track-title {
+      font-weight: 700;
+      font-size: 1.1rem;
+    }
+
+    .lyrics-track-artist {
+      color: var(--aura-text-2);
+      font-size: 0.88rem;
+    }
+
+    .lyrics-lines {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .lyric-line {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.25);
+      transition: all 0.4s ease;
+      cursor: pointer;
+      line-height: 1.4;
+    }
+
+    .lyric-line:hover {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .lyric-line.active {
+      color: #fff;
+      text-shadow: 0 0 20px rgba(255, 255, 255, 0.6);
+      transform: scale(1.03) translateX(8px);
+    }
+
+    .lyric-line.active .gradient-word {
+      background: var(--aura-accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    /* Live Equalizer Dock Bar */
+    .player-dock-bar {
+      margin-top: 36px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--aura-border);
+      border-radius: 20px;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .dock-track-info {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .soundwave-visualizer {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      height: 24px;
+    }
+
+    .soundwave-bar {
+      width: 3px;
+      background: var(--aura-accent);
+      border-radius: 3px;
+      height: 8px;
+      animation: soundWave 1.2s ease-in-out infinite alternate;
+    }
+
+    .soundwave-bar:nth-child(2) { animation-delay: 0.2s; height: 16px; }
+    .soundwave-bar:nth-child(3) { animation-delay: 0.4s; height: 22px; }
+    .soundwave-bar:nth-child(4) { animation-delay: 0.1s; height: 12px; }
+    .soundwave-bar:nth-child(5) { animation-delay: 0.5s; height: 18px; }
+
+    @keyframes soundWave {
+      0% { height: 4px; }
+      100% { height: 24px; }
+    }
+
+    .dock-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .btn-dock-play {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: var(--aura-accent-gradient);
+      border: none;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 16px var(--aura-accent-glow);
+      transition: transform 0.2s ease;
+    }
+
+    .btn-dock-play:hover {
+      transform: scale(1.08);
+    }
+
+    /* Features Section (Bento Grid tailored to the script) */
+    .features-section {
+      padding: 60px 0 120px;
+    }
+
+    .bento-grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 24px;
+    }
+
+    .bento-card {
+      padding: 36px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .col-span-8 { grid-column: span 8; }
+    .col-span-4 { grid-column: span 4; }
+    .col-span-6 { grid-column: span 6; }
+    .col-span-12 { grid-column: span 12; }
+
+    .card-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+      background: rgba(168, 85, 247, 0.12);
+      color: var(--aura-accent);
+      border: 1px solid rgba(168, 85, 247, 0.25);
+    }
+
+    .card-icon.cyan {
+      background: rgba(6, 182, 212, 0.12);
+      color: var(--aura-cyan);
+      border-color: rgba(6, 182, 212, 0.25);
+    }
+
+    .card-icon.green {
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--aura-green);
+      border-color: rgba(16, 185, 129, 0.25);
+    }
+
+    .card-icon.gold {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--aura-gold);
+      border-color: rgba(245, 158, 11, 0.25);
+    }
+
+    .card-title {
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      line-height: 1.3;
+    }
+
+    .card-desc {
+      color: var(--aura-text-2);
+      font-size: 0.98rem;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+
+    .feature-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: auto;
+    }
+
+    .feat-tag {
+      font-size: 0.78rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--aura-border);
+      padding: 5px 12px;
+      border-radius: 8px;
+      color: var(--aura-text-2);
+    }
+
+    /* Technology Stack Section */
+    .stack-section {
+      padding: 40px 0 120px;
+    }
+
+    .stack-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+    }
+
+    .stack-card {
+      background: var(--aura-surface);
+      border: 1px solid var(--aura-border);
+      border-radius: var(--aura-radius);
+      padding: 26px;
+      transition: all 0.25s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .stack-card:hover {
+      border-color: rgba(168, 85, 247, 0.35);
+      background: var(--aura-surface-2);
+      transform: translateY(-2px);
+    }
+
+    .stack-name {
+      font-size: 1.15rem;
+      font-weight: 700;
+    }
+
+    .stack-role {
+      font-size: 0.85rem;
+      color: var(--aura-accent);
+      font-weight: 600;
+    }
+
+    .stack-desc {
+      font-size: 0.88rem;
+      color: var(--aura-text-2);
+      line-height: 1.5;
+    }
+
+    /* Ecosystem Banner (Vercel + Android) */
+    .ecosystem-banner {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(6, 182, 212, 0.08)), var(--aura-surface);
+      border: 1px solid rgba(168, 85, 247, 0.25);
+      border-radius: var(--aura-radius-xl);
+      padding: 40px;
+      margin-bottom: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 32px;
+      flex-wrap: wrap;
+    }
+
+    .eco-content h3 {
+      font-size: 1.6rem;
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+
+    .eco-content p {
+      color: var(--aura-text-2);
+      max-width: 620px;
+      line-height: 1.6;
+    }
+
+    /* Download & GitHub Center */
+    .download-section {
+      padding: 40px 0 140px;
+      text-align: center;
+    }
+
+    .download-box {
+      background: radial-gradient(circle at 50% 0%, rgba(168, 85, 247, 0.2), transparent 70%), var(--aura-surface);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      border-radius: var(--aura-radius-xl);
+      padding: 64px 32px;
+      max-width: 1000px;
+      margin: 0 auto;
+      box-shadow: 0 40px 100px -20px rgba(0, 0, 0, 0.85), 0 0 50px -15px var(--aura-accent-glow);
+    }
+
+    .download-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      margin: 48px 0 36px;
+      text-align: left;
+    }
+
+    .dl-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--aura-border);
+      border-radius: var(--aura-radius-lg);
+      padding: 32px 24px;
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+    }
+
+    .dl-card.featured {
+      border-color: rgba(168, 85, 247, 0.5);
+      background: rgba(168, 85, 247, 0.08);
+    }
+
+    .dl-badge {
+      position: absolute;
+      top: -12px;
+      right: 20px;
+      background: var(--aura-accent-gradient);
+      color: #fff;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 999px;
+      box-shadow: 0 4px 14px var(--aura-accent-glow);
+    }
+
+    .dl-title {
+      font-size: 1.3rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .dl-specs {
+      font-size: 0.85rem;
+      color: var(--aura-text-2);
+      margin-bottom: 20px;
+    }
+
+    .dl-features {
+      list-style: none;
+      margin-bottom: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .dl-features li {
+      font-size: 0.9rem;
+      color: var(--aura-text-2);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dl-features li svg {
+      color: var(--aura-green);
+      flex-shrink: 0;
+    }
+
+    .btn-dl {
+      width: 100%;
+      text-align: center;
+      padding: 14px;
+      border-radius: var(--aura-radius);
+      font-weight: 700;
+      font-size: 0.95rem;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.25s ease;
+    }
+
+    .btn-dl-primary {
+      background: var(--aura-accent-gradient);
+      color: #fff;
+      box-shadow: 0 4px 20px var(--aura-accent-glow);
+    }
+
+    .btn-dl-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(168, 85, 247, 0.6);
+    }
+
+    .btn-dl-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      border: 1px solid var(--aura-border);
+    }
+
+    .btn-dl-secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+      transform: translateY(-2px);
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--aura-border);
+      background: rgba(7, 7, 10, 0.95);
+      padding: 60px 0 40px;
+      color: var(--aura-text-3);
+      font-size: 0.9rem;
+    }
+
+    .footer-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+
+    .footer-brand {
+      max-width: 360px;
+    }
+
+    .footer-disclaimer {
+      font-size: 0.8rem;
+      line-height: 1.6;
+      margin-top: 12px;
+      color: var(--aura-text-3);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 48px;
+      flex-wrap: wrap;
+    }
+
+    .footer-col h4 {
+      color: var(--aura-text);
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    .footer-col ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .footer-col a {
+      color: var(--aura-text-2);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    .footer-col a:hover {
+      color: var(--aura-accent);
+    }
+
+    .footer-bottom {
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      padding-top: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    /* Responsive Queries */
+    @media (max-width: 992px) {
+      .col-span-8, .col-span-4, .col-span-6 {
+        grid-column: span 12;
+      }
+      .nav-links {
+        display: none;
+      }
+      .showcase-wrapper {
+        padding: 24px;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .hero-section {
+        padding-top: 120px;
+      }
+      .hero-title {
+        font-size: 2.3rem;
+      }
+      .phone-mockup {
+        width: 270px;
+      }
+      .bento-card {
+        padding: 24px;
+      }
+      .download-box {
+        padding: 36px 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Ambient Pulsing Glow Orbs -->
+  <div class="ambient-glow glow-top"></div>
+  <div class="ambient-glow glow-middle"></div>
+  <div class="ambient-glow glow-bottom"></div>
+
+  <!-- Header Navigation -->
+  <header class="glass-nav">
+    <div class="nav-container">
+      <a href="#" class="logo-container">
+        <img src="assets/logo.png" alt="Aura Logo" class="logo-img">
+        <span class="logo-title">AURA <span class="badge-version">v1.0.25</span></span>
+      </a>
+
+      <ul class="nav-links">
+        <li><a href="#showcase">Anteprime</a></li>
+        <li><a href="#features">Funzionalità</a></li>
+        <li><a href="#tech">Tecnologie</a></li>
+        <li><a href="#download">Download</a></li>
+        <li><a href="https://aura-web-lyart.vercel.app/" target="_blank" rel="noopener noreferrer">Web Player (Vercel)</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <a href="https://github.com/DotHack88/Aura" target="_blank" rel="noopener noreferrer" class="btn-nav-gh">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+          GitHub
+        </a>
+        <a href="#download" class="btn-nav-cta">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          Scarica APK
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero-section container">
+    <div class="pill-tag">
+      <span class="pulse-dot"></span>
+      Aura Music • Android Nativo (Kotlin + Compose) & Web (Vercel)
+    </div>
+
+    <!-- Slogan Portante dal Script Utente -->
+    <div class="hero-slogan-box">
+      <p class="hero-slogan-text">
+        « Aura non è soltanto un player musicale, ma un'esperienza di ascolto personalizzata. »
+      </p>
+    </div>
+
+    <h1 class="hero-title">
+      Il suono che ami.<br>
+      <span class="gradient-text">Libero, sincronizzato, senza confini.</span>
+    </h1>
+
+    <p class="hero-subtitle">
+      Aura è un music player nativo per <strong>Android</strong> (sviluppato con <strong>Kotlin e Jetpack Compose</strong>) e accessibile via <strong>Web su Vercel</strong>. Progettato con una grafica minimale ed elegante, offre riproduzione in background, testi sincronizzati, radio intelligente e sincronizzazione cloud multi-device.
+    </p>
+
+    <div class="hero-cta-group">
+      <!-- Pulsante Scarica APK Android -->
+      <a href="#download" class="btn-primary">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9996.4482.9996.9993 0 .5511-.4486.9997-.9996.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9997.4482.9997.9993 0 .5511-.4486.9997-.9997.9997m11.4045-6.02l1.9973-3.4592a.416.416 0 00-.1521-.5676.416.416 0 00-.5676.1521l-2.0223 3.503C15.5902 8.414 13.8533 8.125 12 8.125c-1.8533 0-3.5902.289-5.1368.8247L4.8409 5.4467a.4161.4161 0 00-.5676-.1521.4157.4157 0 00-.1521.5676l1.9973 3.4592C2.6889 11.1867.343 14.5889.043 18.5h23.914c-.3-3.9111-2.6459-7.3133-6.0765-9.1786"/>
+        </svg>
+        Scarica Aura v1.0.25 (APK)
+      </a>
+
+      <!-- Pulsante Web Player Vercel -->
+      <a href="https://aura-web-lyart.vercel.app/" target="_blank" rel="noopener noreferrer" class="btn-vercel">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M24 22.525H0l12-21.05 12 21.05z"/>
+        </svg>
+        Ascolta su Vercel (Web PWA)
+      </a>
+
+      <!-- Pulsante Repository GitHub -->
+      <a href="https://github.com/DotHack88/Aura" target="_blank" rel="noopener noreferrer" class="btn-github">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+        </svg>
+        GitHub Repository
+      </a>
+    </div>
+
+    <div class="hero-badges">
+      <div class="hero-badge-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        Kotlin & Jetpack Compose
+      </div>
+      <div class="hero-badge-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        Media3 Background Player
+      </div>
+      <div class="hero-badge-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        Cloud Firebase Sync
+      </div>
+      <div class="hero-badge-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        Aura Radio & Watch Next
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Interface Showcase -->
+  <section id="showcase" class="showcase-section container">
+    <div class="showcase-wrapper">
+      
+      <div class="section-header" style="margin-bottom: 32px;">
+        <span class="section-tag">Anteprima Grafica dell'Interfaccia</span>
+        <h2 class="section-title">Design Moderno e Immersivo.</h2>
+        <p class="section-desc">Un'interfaccia studiata per fondersi con la musica: gradienti adattivi basati sulla copertina, controlli fluidi e supporto orizzontale e verticale.</p>
+      </div>
+
+      <!-- Tab Switcher -->
+      <div class="showcase-nav">
+        <button class="tab-btn active" onclick="switchMockup('portrait', this)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+          Vista Smartphone (Verticale)
+        </button>
+        <button class="tab-btn" onclick="switchMockup('landscape', this)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2" ry="2"></rect><line x1="18" y1="12" x2="18.01" y2="12"></line></svg>
+          Vista Landscape (Orizzontale)
+        </button>
+        <button class="tab-btn" onclick="switchMockup('lyrics', this)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+          Testi Sincronizzati (LRC)
+        </button>
+      </div>
+
+      <!-- Device Showcase Viewports -->
+      <div class="device-stage">
+        
+        <!-- View 1: Smartphone Verticale -->
+        <div id="view-portrait" class="view-container active">
+          <div class="phone-mockup">
+            <div class="phone-notch"></div>
+            <img src="assets/screenshot_player.jpg" alt="Aura Player in Portrait Mode" class="phone-screen-img">
+          </div>
+        </div>
+
+        <!-- View 2: Tablet/Landscape Orizzontale -->
+        <div id="view-landscape" class="view-container">
+          <div class="landscape-mockup">
+            <img src="assets/screenshot_landscape.jpg" alt="Aura Player in Landscape Mode" class="landscape-screen-img">
+          </div>
+        </div>
+
+        <!-- View 3: Live Synchronized Lyrics Preview -->
+        <div id="view-lyrics" class="view-container">
+          <div class="lyrics-mockup">
+            <div class="lyrics-header">
+              <img src="assets/logo.png" alt="Aura Artwork" class="lyrics-thumb">
+              <div>
+                <div class="lyrics-track-title">Na vota ancora</div>
+                <div class="lyrics-track-artist">Rocco Hunt • 'A Verità</div>
+              </div>
+            </div>
+
+            <div class="lyrics-lines">
+              <div class="lyric-line" onclick="setLyricActive(this)">Pure si 'o cielo s'è fatto scuro</div>
+              <div class="lyric-line active" onclick="setLyricActive(this)">
+                Nuie rimanimm' ancora <span class="gradient-word">ccà pe sempe</span>
+              </div>
+              <div class="lyric-line" onclick="setLyricActive(this)">Sent' 'a musica ca saglie forte</div>
+              <div class="lyric-line" onclick="setLyricActive(this)">Comme 'o battito 'e 'stu core</div>
+              <div class="lyric-line" onclick="setLyricActive(this)">Na vota ancora 'nziem' a te...</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Live Player Interactive Bar -->
+      <div class="player-dock-bar">
+        <div class="dock-track-info">
+          <div class="soundwave-visualizer" id="live-eq">
+            <div class="soundwave-bar"></div>
+            <div class="soundwave-bar"></div>
+            <div class="soundwave-bar"></div>
+            <div class="soundwave-bar"></div>
+            <div class="soundwave-bar"></div>
+          </div>
+          <div>
+            <div style="font-weight: 700; font-size: 0.95rem;">Aura Native Player • Riproduzione in corso</div>
+            <div style="font-size: 0.8rem; color: var(--aura-text-2);">Media3 ExoPlayer • 320 kbps flussi diretti</div>
+          </div>
+        </div>
+
+        <div class="dock-controls">
+          <button class="btn-dock-play" id="btn-toggle-play" onclick="togglePlaySimulation()">
+            <svg id="play-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="4" width="4" height="16"></rect>
+              <rect x="14" y="4" width="4" height="16"></rect>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Core Features Section (Directly Mapped to User Script) -->
+  <section id="features" class="features-section container">
+    <div class="section-header">
+      <span class="section-tag">Funzionalità Chiave</span>
+      <h2 class="section-title">Più di un lettore musicale.</h2>
+      <p class="section-desc">Aura integra le funzionalità più evolute per garantirti un ascolto intimo, potente e continuo su qualsiasi dispositivo.</p>
+    </div>
+
+    <div class="bento-grid">
+      
+      <!-- 1. Player musicale con riproduzione in background -->
+      <div class="glass-card bento-card col-span-8">
+        <div>
+          <div class="card-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </div>
+          <h3 class="card-title">1. Player Musicale con Riproduzione in Background</h3>
+          <p class="card-desc">Grazie all'integrazione di <strong>AndroidX Media3 (ExoPlayer)</strong> e Foreground Service nativo, la tua musica non si ferma mai. Continua l'ascolto con lo schermo spento, naviga tra altre app o ricevi indicazioni stradali con comandi completi su lockscreen e notifiche. I consumi energetici sono calibrati per azzerare l'impatto sulla batteria.</p>
+        </div>
+        <div class="feature-tags">
+          <span class="feat-tag">Media3 ExoPlayer</span>
+          <span class="feat-tag">Schermo Spento</span>
+          <span class="feat-tag">Lockscreen Controls</span>
+          <span class="feat-tag">Zero Battery Drain</span>
+        </div>
+      </div>
+
+      <!-- 2. Testi sincronizzati con scorrimento automatico -->
+      <div class="glass-card bento-card col-span-4">
+        <div>
+          <div class="card-icon gold">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+          </div>
+          <h3 class="card-title">2. Testi Sincronizzati con Auto-Scroll</h3>
+          <p class="card-desc">Motore LRC millisecondo per millisecondo. I testi scorrono fluidamente riga per riga con evidenziazione karaoke luminosa. Tocca una riga per saltare all'istante a quel preciso punto della canzone.</p>
+        </div>
+        <div class="feature-tags">
+          <span class="feat-tag">LRC Engine</span>
+          <span class="feat-tag">Auto-Scroll</span>
+          <span class="feat-tag">Seek interattivo</span>
+        </div>
+      </div>
+
+      <!-- 3. Libreria personale, preferiti e playlist -->
+      <div class="glass-card bento-card col-span-4">
+        <div>
+          <div class="card-icon green">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+          </div>
+          <h3 class="card-title">3. Libreria Personale & Playlist</h3>
+          <p class="card-desc">Salva i tuoi brani preferiti con il tasto rapido (con burst animation), organizza playlist tematiche e consulta la cronologia degli ascolti salvata localmente nel database Room.</p>
+        </div>
+        <div class="feature-tags">
+          <span class="feat-tag">Room DB Offline</span>
+          <span class="feat-tag">Preferiti</span>
+          <span class="feat-tag">Playlist personali</span>
+        </div>
+      </div>
+
+      <!-- 4. Aura Radio con suggerimenti musicali dinamici -->
+      <div class="glass-card bento-card col-span-4">
+        <div>
+          <div class="card-icon cyan">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"></circle><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path></svg>
+          </div>
+          <h3 class="card-title">4. Aura Radio & Watch Next</h3>
+          <p class="card-desc">Quando la coda termina, l'algoritmo intelligente di Aura analizza il brano corrente e carica automaticamente nuovi suggerimenti musicali affini, con filtri dinamici per genere e mood.</p>
+        </div>
+        <div class="feature-tags">
+          <span class="feat-tag">Algoritmo Watch Next</span>
+          <span class="feat-tag">Coda Infinita</span>
+          <span class="feat-tag">Chip Mood</span>
+        </div>
+      </div>
+
+      <!-- 5. Sincronizzazione cloud tramite Firebase -->
+      <div class="glass-card bento-card col-span-4">
+        <div>
+          <div class="card-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path></svg>
+          </div>
+          <h3 class="card-title">5. Sincronizzazione Cloud Firebase</h3>
+          <p class="card-desc">Accedi con Google Sign-In e ritrova istantaneamente i tuoi preferiti e playlist su tutti i tuoi dispositivi: l'app Android e il Web Player su Vercel comunicano in tempo reale via Firestore.</p>
+        </div>
+        <div class="feature-tags">
+          <span class="feat-tag">Google Sign-In</span>
+          <span class="feat-tag">Cloud Firestore</span>
+          <span class="feat-tag">Multi-Device</span>
+        </div>
+      </div>
+
+      <!-- 6. Ricerca musicale basata su YouTube Music -->
+      <div class="glass-card bento-card col-span-12">
+        <div>
+          <div class="card-icon cyan">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          </div>
+          <h3 class="card-title">6. Ricerca Musicale Globale basata su YouTube Music</h3>
+          <p class="card-desc">Cerca milioni di brani, versioni live, album, artisti e remix introvabili altrove tramite l'integrazione con le API di YouTube Music (InnerTube). Il sistema include una cache locale intelligente Room con TTL di 7 giorni per minimizzare le richieste di rete e rendere le ricerche future fulminee.</p>
+        </div>
+        <div class="feature-tags">
+          <span class="feat-tag">InnerTube API</span>
+          <span class="feat-tag">Cache Locale 7gg</span>
+          <span class="feat-tag">Catalogo Globale</span>
+          <span class="feat-tag">Zero Pubblicità</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Technology & Architecture Section -->
+  <section id="tech" class="stack-section container">
+    <div class="section-header">
+      <span class="section-tag">Strumenti & Tecnologie</span>
+      <h2 class="section-title">Architettura Reattiva di Ultima Generazione.</h2>
+      <p class="section-desc">Il progetto Aura combina le migliori tecnologie del mondo Android nativo e dell'ecosistema moderno del Web.</p>
+    </div>
+
+    <div class="stack-grid">
+      <div class="stack-card">
+        <span class="stack-name">Kotlin 1.9+</span>
+        <span class="stack-role">Linguaggio Android Core</span>
+        <p class="stack-desc">Type-safety rigorosa, coroutine asincrone ad altissime prestazioni e StateFlow per la gestione dello stato reattivo.</p>
+      </div>
+
+      <div class="stack-card">
+        <span class="stack-name">Jetpack Compose & Material 3</span>
+        <span class="stack-role">UI Nativa Dichiarativa</span>
+        <p class="stack-desc">Interfaccia grafica moderna a 120 FPS, microinterazioni curate e palette dinamiche sincronizzate con la copertina dell'album.</p>
+      </div>
+
+      <div class="stack-card">
+        <span class="stack-name">AndroidX Media3 (ExoPlayer)</span>
+        <span class="stack-role">Motore Audio & Background</span>
+        <p class="stack-desc">Buffer audio avanzato, Foreground Service per la riproduzione continua a schermo spento e controlli multimediali di sistema.</p>
+      </div>
+
+      <div class="stack-card">
+        <span class="stack-name">Room Database</span>
+        <span class="stack-role">Persistenza Offline-First</span>
+        <p class="stack-desc">Archiviazione locale sicura e ultra-veloce di preferiti, playlist, storico d'ascolto e cache delle ricerche per risparmiare traffico dati.</p>
+      </div>
+
+      <div class="stack-card">
+        <span class="stack-name">Firebase Auth & Firestore</span>
+        <span class="stack-role">Cloud Multi-Device Sync</span>
+        <p class="stack-desc">Autenticazione con account Google e sincronizzazione cloud bidirezionale tra l'applicazione Android e il Web Player.</p>
+      </div>
+
+      <div class="stack-card">
+        <span class="stack-name">NewPipeExtractor</span>
+        <span class="stack-role">Estrazione Flussi Audio</span>
+        <p class="stack-desc">Bypass pulito ed efficiente delle limitazioni per estrarre direttamente i flussi audio 320kbps senza pubblicità.</p>
+      </div>
+
+      <div class="stack-card">
+        <span class="stack-name">Next.js 16 + React 19</span>
+        <span class="stack-role">Web Client PWA (Vercel)</span>
+        <p class="stack-desc">Applicazione Web progressiva (PWA) sviluppata con Next.js e Tailwind CSS, ospitata con deploy continuo su Vercel.</p>
+      </div>
+
+      <div class="stack-card">
+        <span class="stack-name">Retrofit 2 + OkHttp + Gson</span>
+        <span class="stack-role">Networking & API Client</span>
+        <p class="stack-desc">Gestione ottimizzata delle chiamate REST, connection pooling e parsing JSON istantaneo con serializzazione Gson.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Ecosystem Bridge Banner (Vercel Web + Android App) -->
+  <section class="container">
+    <div class="ecosystem-banner">
+      <div class="eco-content">
+        <h3>Due mondi, un'unica esperienza musicale.</h3>
+        <p>Aura vive sia come app nativa sul tuo smartphone Android che come Web App PWA su Vercel. I tuoi preferiti e le tue playlist si sincronizzano istantaneamente via Cloud Firebase.</p>
+      </div>
+      <div>
+        <a href="https://aura-web-lyart.vercel.app/" target="_blank" rel="noopener noreferrer" class="btn-primary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M24 22.525H0l12-21.05 12 21.05z"/>
+          </svg>
+          Apri Web Player su Vercel
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Download & GitHub Section -->
+  <section id="download" class="download-section container">
+    <div class="download-box">
+      <span class="section-tag">Distribuzione Ufficiale</span>
+      <h2 class="section-title">Inizia subito a vivere l'esperienza Aura.</h2>
+      <p class="section-desc">Installa l'APK nativo su Android oppure ascolta direttamente dal browser tramite Vercel.</p>
+
+      <div class="download-cards">
+        
+        <!-- Release APK -->
+        <div class="dl-card featured">
+          <span class="dl-badge">CONSIGLIATO</span>
+          <div>
+            <h3 class="dl-title">Aura v1.0.25 (Release)</h3>
+            <p class="dl-specs">Ottimizzato R8 ProGuard • ~59 MB • Android 8.0+</p>
+            <ul class="dl-features">
+              <li>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Build stabile ottimizzata per l'uso quotidiano
+              </li>
+              <li>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Consumi RAM e batteria ridotti del 40%
+              </li>
+              <li>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Aggiornamenti in-app automatici
+              </li>
+            </ul>
+          </div>
+          <a href="https://github.com/DotHack88/Aura/releases/download/v1.0.25/Aura-1.0.25-release.apk" class="btn-dl btn-dl-primary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+            </svg>
+            Scarica APK Release
+          </a>
+        </div>
+
+        <!-- Web Player PWA (Vercel) -->
+        <div class="dl-card">
+          <div>
+            <h3 class="dl-title">Web Player (Vercel)</h3>
+            <p class="dl-specs">Progressive Web App • Accessibile da qualsiasi browser</p>
+            <ul class="dl-features">
+              <li>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Nessuna installazione richiesta
+              </li>
+              <li>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Sincronizzato con l'app Android via Firebase
+              </li>
+              <li>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Disponibile su PC, Mac, Linux e iOS
+              </li>
+            </ul>
+          </div>
+          <a href="https://aura-web-lyart.vercel.app/" target="_blank" rel="noopener noreferrer" class="btn-dl btn-dl-secondary">
+            Avvia Web Player
+          </a>
+        </div>
+
+        <!-- GitHub Repository & Debug Build -->
+        <div class="dl-card">
+          <div>
+            <h3 class="dl-title">Codice Open Source</h3>
+            <p class="dl-specs">Repository GitHub • Contribuisci al progetto</p>
+            <ul class="dl-features">
+              <li>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Codice sorgente 100% aperto (Licenza MIT)
+              </li>
+              <li>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Changelog dettagliato delle release
+              </li>
+              <li>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Download build di debug per sviluppatori
+              </li>
+            </ul>
+          </div>
+          <a href="https://github.com/DotHack88/Aura" target="_blank" rel="noopener noreferrer" class="btn-dl btn-dl-secondary">
+            Visita su GitHub
+          </a>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-top">
+        <div class="footer-brand">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+            <img src="assets/logo.png" alt="Aura Logo" style="width: 28px; height: 28px; border-radius: 6px;">
+            <strong style="color: var(--aura-text); font-size: 1.15rem;">AURA</strong>
+          </div>
+          <p>« Non soltanto un player musicale, ma un'esperienza di ascolto personalizzata. »</p>
+          <p class="footer-disclaimer">
+            <strong>Nota Legale:</strong> Progetto sviluppato a solo scopo educativo e di ricerca. I flussi audio sono elaborati secondo i principi open source per l'interoperabilità dei dispositivi personali.
+          </p>
+        </div>
+
+        <div class="footer-links">
+          <div class="footer-col">
+            <h4>Navigazione</h4>
+            <ul>
+              <li><a href="#showcase">Anteprime</a></li>
+              <li><a href="#features">Funzionalità</a></li>
+              <li><a href="#tech">Tecnologie</a></li>
+              <li><a href="#download">Download APK</a></li>
+            </ul>
+          </div>
+
+          <div class="footer-col">
+            <h4>Ecosistema Aura</h4>
+            <ul>
+              <li><a href="https://aura-web-lyart.vercel.app/" target="_blank" rel="noopener noreferrer">Aura Web su Vercel</a></li>
+              <li><a href="https://github.com/DotHack88/Aura" target="_blank" rel="noopener noreferrer">Repository GitHub</a></li>
+              <li><a href="https://github.com/DotHack88/Aura/releases" target="_blank" rel="noopener noreferrer">Release APK</a></li>
+              <li><a href="https://github.com/DotHack88/Aura/issues" target="_blank" rel="noopener noreferrer">Segnala un Bug</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>&copy; 2026 Aura Project • Distribuito sotto licenza open source MIT.</div>
+        <div>Sviluppato con passione per l'ascolto libero e personalizzato.</div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Interactive JavaScript -->
+  <script>
+    // Tab Mockup Switcher
+    function switchMockup(mode, button) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.view-container').forEach(view => view.classList.remove('active'));
+
+      button.classList.add('active');
+      const targetView = document.getElementById('view-' + mode);
+      if (targetView) {
+        targetView.classList.add('active');
+      }
+    }
+
+    // Lyrics Interactive Switcher
+    function setLyricActive(element) {
+      document.querySelectorAll('.lyric-line').forEach(line => line.classList.remove('active'));
+      element.classList.add('active');
+    }
+
+    // Play/Pause Live Soundwave Simulation
+    let isPlaying = true;
+    function togglePlaySimulation() {
+      isPlaying = !isPlaying;
+      const playIcon = document.getElementById('play-icon');
+      const eq = document.getElementById('live-eq');
+      const bars = eq.querySelectorAll('.soundwave-bar');
+
+      if (isPlaying) {
+        playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>';
+        bars.forEach(bar => bar.style.animationPlayState = 'running');
+      } else {
+        playIcon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"></polygon>';
+        bars.forEach(bar => {
+          bar.style.animationPlayState = 'paused';
+          bar.style.height = '6px';
+        });
+      }
+    }
+
+    // Card Spotlight Effect (mouse follow)
+    document.querySelectorAll('.glass-card').forEach(card => {
+      card.addEventListener('mousemove', e => {
+        const rect = card.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        card.style.setProperty('--mouse-x', `${x}px`);
+        card.style.setProperty('--mouse-y', `${y}px`);
+      });
+    });
+
+    // Smooth Scroll Offset Adjustment
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        const targetId = this.getAttribute('href');
+        if (targetId === '#') return;
+        const targetElement = document.querySelector(targetId);
+        if (targetElement) {
+          e.preventDefault();
+          const headerOffset = 80;
+          const elementPosition = targetElement.getBoundingClientRect().top;
+          const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+
+          window.scrollTo({
+            top: offsetPosition,
+            behavior: 'smooth'
+          });
+        }
+      });
+    });
+  </script>
+</body>
+</html>
