@@ -422,7 +422,7 @@ inline void getStringData("""
         except Exception as e:
             print(f"Error patching VideoViewModule.swift: {e}")
 
-    # 13. Create EXFatal/EXErrorWithMessage compatibility stubs for modules-core 58.x+
+    # 13. Create EXFatal/EXErrorWithMessage/EXLog* compatibility stubs for modules-core 58.x+
     # These macros were removed from EXDefines.h in modules-core 58.x but are still used by expo-av.
     # We provide fallback definitions via a separate header that gets included before EXDefines.
     compat_stub = """// Copyright © 2017-present 650 Industries. All rights reserved.
@@ -443,6 +443,18 @@ inline void getStringData("""
     NSLog(@"%@ %@", @"[EX] FATAL:", err); \
     abort(); \
 } while(0)
+#endif
+
+#ifndef EXLogInfo
+#define EXLogInfo(...) NSLog(@"[EX INFO] " __VA_ARGS__)
+#endif
+
+#ifndef EXLogWarn
+#define EXLogWarn(...) NSLog(@"[EX WARN] " __VA_ARGS__)
+#endif
+
+#ifndef EXLogError
+#define EXLogError(...) NSLog(@"[EX ERROR] " __VA_ARGS__)
 #endif
 
 #endif /* EX_COMPAT_MACROS_H */
