@@ -372,5 +372,25 @@ inline void getStringData("""
         except Exception as e:
             print(f"Error creating EXLegacyExpoViewProtocol.h stub at {target}: {e}")
 
+    # 12. Patch expo-av VideoViewModule.swift: use promise.legacyResolver instead of promise.resolver
+    # In expo-modules-core 58.x+, Promise.resolver type changed from EXPromiseResolveBlock (id result)
+    # to ResolveClosure (consuming JavaScriptValue), causing a type mismatch when passed to ObjC methods
+    # expecting EXPromiseResolveBlock. Using legacyResolver provides the correct @Sendable (Optional<Any>) -> () type.
+    video_module = os.path.join(ios_dir, "node_modules/expo-av/ios/EXAV/Video/VideoViewModule.swift")
+    if os.path.exists(video_module):
+        try:
+            with open(video_module, "r", encoding="utf-8") as f:
+                vv_content = f.read()
+            if "promise.resolver" in vv_content and "legacyResolver" not in vv_content.split("setFullscreen")[1].split("}")[0]:
+                vv_content = vv_content.replace(
+                    "resolver: promise.resolver,",
+                    "resolver: promise.legacyResolver,"
+                )
+                with open(video_module, "w", encoding="utf-8") as f:
+                    f.write(vv_content)
+                print("Successfully patched VideoViewModule.swift (promise.resolver -> legacyResolver)")
+        except Exception as e:
+            print(f"Error patching VideoViewModule.swift: {e}")
+
 if __name__ == "__main__":
     patch_expo()
